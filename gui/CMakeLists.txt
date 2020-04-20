@@ -25,7 +25,7 @@ find_package(FFMPEG REQUIRED COMPONENTS avcodec avutil)
 set(RESOURCE_FILES "")
 
 if(APPLE)
-	list(APPEND RESOURCE_FILES "chiaki.icns")
+	list(APPEND RESOURCE_FILES "chiaki.icns" "chiaki.sdef")
 endif()
 
 add_executable(chiaki WIN32
@@ -70,7 +70,9 @@ add_executable(chiaki WIN32
 		include/controllermanager.h
 		src/controllermanager.cpp
 		include/loginpindialog.h
-		src/loginpindialog.cpp)
+		src/loginpindialog.cpp
+		include/pushbuttoncommand.h
+		src/pushbuttoncommand.mm)
 target_include_directories(chiaki PRIVATE include)
 
 target_link_libraries(chiaki chiaki-lib)
@@ -82,7 +84,7 @@ endif()
 target_link_libraries(chiaki FFMPEG::avcodec FFMPEG::avutil)
 target_link_libraries(chiaki Qt5::Core Qt5::Widgets Qt5::Gui Qt5::Multimedia Qt5::OpenGL Qt5::Svg)
 if(APPLE)
-	target_link_libraries(chiaki Qt5::MacExtras)
+	target_link_libraries(chiaki Qt5::MacExtras "-framework Cocoa")
 	target_compile_definitions(chiaki PRIVATE CHIAKI_GUI_ENABLE_QT_MACEXTRAS)
 endif()
 if(CHIAKI_GUI_ENABLE_QT_GAMEPAD)

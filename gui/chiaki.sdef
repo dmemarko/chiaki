@@ -1,0 +1,13 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE dictionary SYSTEM "file://localhost/System/Library/DTDs/sdef.dtd">
+
+<dictionary title="Chiaki">
+    <suite name="Chiaki Suite" code="MApN" description="Chiaki Scripts">
+        <command name="push" code="push_str" description="Emulates pushing DS button">
+            <cocoa class="PushButtonCommand"/>
+            <direct-parameter description="The button to push">
+                <type type="text"/>
+            </direct-parameter>
+        </command>
+    </suite>
+</dictionary>
