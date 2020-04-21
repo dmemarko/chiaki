@@ -1,6 +1,19 @@
 
 ![Chiaki Logo](assets/chiaki_wide.png)
 
+# Fork with added Apple Script support
+
+The only available command is __*push*__ followed by the name of the button as an argument
+
+## Usage example:
+```applescript
+tell application "Chiaki"
+  push "Cross"
+end tell
+```
+## Button names:
+"Cross" "Moon" "Box" "Pyramid" "D-Pad Left" "D-Pad Right" "D-Pad Up" "D-Pad Down" "L1" "R1" "L3" "R3" "Options" "Share" "Touchpad" "PS" "L2" "R2" "Left Stick Right" "Left Stick Up" "Right Stick Right" "Right Stick Up" "Left Stick Left" "Left Stick Down" "Right Stick Left" "Right Stick Down"
+
 # Chiaki
 
 **Disclaimer:** This project is not endorsed or certified by Sony Interactive Entertainment LLC.
