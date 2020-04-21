@@ -43,7 +43,7 @@ You can either download a pre-built release (easier) or build Chiaki from source
 
 Builds are provided for Linux, Android, macOS and Windows.
 
-You can download them [here](https://github.com/thestr4ng3r/chiaki/releases).
+You can download them [here](https://github.com/duwoka/chiaki/releases).
 
 * **Linux**: The provided file is an [AppImage](https://appimage.org/). Simply make it executable (`chmod +x <file>.AppImage`) and run it.
 * **Android**: Install from [Google Play](https://play.google.com/store/apps/details?id=com.metallic.chiaki) or download the APK from GitHub.
