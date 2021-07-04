@@ -1,19 +1,4 @@
-/*
- * This file is part of Chiaki.
- *
- * Chiaki is free software: you can redistribute it and/or modify
- * it under the terms of the GNU General Public License as published by
- * the Free Software Foundation, either version 3 of the License, or
- * (at your option) any later version.
- *
- * Chiaki is distributed in the hope that it will be useful,
- * but WITHOUT ANY WARRANTY; without even the implied warranty of
- * MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
- * GNU General Public License for more details.
- *
- * You should have received a copy of the GNU General Public License
- * along with Chiaki.  If not, see <https://www.gnu.org/licenses/>.
- */
+// SPDX-License-Identifier: LicenseRef-AGPL-3.0-only-OpenSSL
 
 #include <chiaki/stoppipe.h>
 #include <chiaki/sock.h>
@@ -34,7 +19,7 @@ CHIAKI_EXPORT ChiakiErrorCode chiaki_stop_pipe_init(ChiakiStopPipe *stop_pipe)
 	stop_pipe->event = WSACreateEvent();
 	if(stop_pipe->event == WSA_INVALID_EVENT)
 		return CHIAKI_ERR_UNKNOWN;
-#elif defined(__SWITCH__) || defined(CHIAKI_ENABLE_SWITCH_LINUX)
+#elif defined(__SWITCH__)
 	// currently pipe or socketpare are not available on switch
 	// use a custom udp socket as pipe
 
@@ -42,9 +27,8 @@ CHIAKI_EXPORT ChiakiErrorCode chiaki_stop_pipe_init(ChiakiStopPipe *stop_pipe)
 	int addr_size = sizeof(stop_pipe->addr);
 
 	stop_pipe->fd = socket(AF_INET, SOCK_DGRAM, IPPROTO_UDP);
-	if(stop_pipe->fd < 0){
+	if(stop_pipe->fd < 0)
 		return CHIAKI_ERR_UNKNOWN;
-	}
 	stop_pipe->addr.sin_family = AF_INET;
 	// bind to localhost
 	stop_pipe->addr.sin_addr.s_addr = htonl(INADDR_LOOPBACK);
@@ -79,7 +63,7 @@ CHIAKI_EXPORT void chiaki_stop_pipe_fini(ChiakiStopPipe *stop_pipe)
 {
 #ifdef _WIN32
 	WSACloseEvent(stop_pipe->event);
-#elif defined(__SWITCH__) || defined(CHIAKI_ENABLE_SWITCH_LINUX)
+#elif defined(__SWITCH__)
 	close(stop_pipe->fd);
 #else
 	close(stop_pipe->fds[0]);
@@ -91,7 +75,7 @@ CHIAKI_EXPORT void chiaki_stop_pipe_stop(ChiakiStopPipe *stop_pipe)
 {
 #ifdef _WIN32
 	WSASetEvent(stop_pipe->event);
-#elif defined(__SWITCH__) || defined(CHIAKI_ENABLE_SWITCH_LINUX)
+#elif defined(__SWITCH__)
 	// send to local socket (FIXME MSG_CONFIRM)
 	sendto(stop_pipe->fd, "\x00", 1, 0,
 		(struct sockaddr*)&stop_pipe->addr, sizeof(struct sockaddr_in));
@@ -135,7 +119,7 @@ CHIAKI_EXPORT ChiakiErrorCode chiaki_stop_pipe_select_single(ChiakiStopPipe *sto
 #else
 	fd_set rfds;
 	FD_ZERO(&rfds);
-#if defined(__SWITCH__) || defined(CHIAKI_ENABLE_SWITCH_LINUX)
+#if defined(__SWITCH__)
 	// push udp local socket as fd
 	int stop_fd = stop_pipe->fd;
 #else
@@ -259,7 +243,7 @@ CHIAKI_EXPORT ChiakiErrorCode chiaki_stop_pipe_reset(ChiakiStopPipe *stop_pipe)
 #ifdef _WIN32
 	BOOL r = WSAResetEvent(stop_pipe->event);
 	return r ? CHIAKI_ERR_SUCCESS : CHIAKI_ERR_UNKNOWN;
-#elif defined(__SWITCH__) || defined(CHIAKI_ENABLE_SWITCH_LINUX)
+#elif defined(__SWITCH__)
 	//FIXME
 	uint8_t v;
 	int r;

@@ -1,19 +1,4 @@
-/*
- * This file is part of Chiaki.
- *
- * Chiaki is free software: you can redistribute it and/or modify
- * it under the terms of the GNU General Public License as published by
- * the Free Software Foundation, either version 3 of the License, or
- * (at your option) any later version.
- *
- * Chiaki is distributed in the hope that it will be useful,
- * but WITHOUT ANY WARRANTY; without even the implied warranty of
- * MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
- * GNU General Public License for more details.
- *
- * You should have received a copy of the GNU General Public License
- * along with Chiaki.  If not, see <https://www.gnu.org/licenses/>.
- */
+// SPDX-License-Identifier: LicenseRef-AGPL-3.0-only-OpenSSL
 
 package com.metallic.chiaki.touchcontrols
 
@@ -31,6 +16,8 @@ class DPadView @JvmOverloads constructor(
 	context: Context, attrs: AttributeSet? = null, defStyleAttr: Int = 0
 ) : View(context, attrs, defStyleAttr)
 {
+	private val haptics = ButtonHaptics(context)
+
 	enum class Direction {
 		LEFT,
 		RIGHT,
@@ -86,7 +73,7 @@ class DPadView @JvmOverloads constructor(
 		else
 			drawable = dpadIdleDrawable
 
-		drawable?.setBounds(0, 0, width, height)
+		drawable?.setBounds(paddingLeft, paddingTop, width - paddingRight, height - paddingBottom)
 		//drawable?.alpha = 127
 		drawable?.draw(canvas)
 	}
@@ -128,6 +115,8 @@ class DPadView @JvmOverloads constructor(
 
 		if(state != newState)
 		{
+			if(newState != null)
+				haptics.trigger()
 			state = newState
 			invalidate()
 			stateChangeCallback?.let { it(state) }

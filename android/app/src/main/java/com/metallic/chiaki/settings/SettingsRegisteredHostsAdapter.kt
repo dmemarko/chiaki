@@ -1,33 +1,16 @@
-/*
- * This file is part of Chiaki.
- *
- * Chiaki is free software: you can redistribute it and/or modify
- * it under the terms of the GNU General Public License as published by
- * the Free Software Foundation, either version 3 of the License, or
- * (at your option) any later version.
- *
- * Chiaki is distributed in the hope that it will be useful,
- * but WITHOUT ANY WARRANTY; without even the implied warranty of
- * MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
- * GNU General Public License for more details.
- *
- * You should have received a copy of the GNU General Public License
- * along with Chiaki.  If not, see <https://www.gnu.org/licenses/>.
- */
+// SPDX-License-Identifier: LicenseRef-AGPL-3.0-only-OpenSSL
 
 package com.metallic.chiaki.settings
 
-import android.view.View
+import android.view.LayoutInflater
 import android.view.ViewGroup
 import androidx.recyclerview.widget.RecyclerView
-import com.metallic.chiaki.R
 import com.metallic.chiaki.common.RegisteredHost
-import com.metallic.chiaki.common.ext.inflate
-import kotlinx.android.synthetic.main.item_registered_host.view.*
+import com.metallic.chiaki.databinding.ItemRegisteredHostBinding
 
 class SettingsRegisteredHostsAdapter: RecyclerView.Adapter<SettingsRegisteredHostsAdapter.ViewHolder>()
 {
-	class ViewHolder(itemView: View): RecyclerView.ViewHolder(itemView)
+	class ViewHolder(val binding: ItemRegisteredHostBinding): RecyclerView.ViewHolder(binding.root)
 
 	var hosts: List<RegisteredHost> = listOf()
 		set(value)
@@ -36,15 +19,15 @@ class SettingsRegisteredHostsAdapter: RecyclerView.Adapter<SettingsRegisteredHos
 			notifyDataSetChanged()
 		}
 
-	override fun onCreateViewHolder(parent: ViewGroup, viewType: Int) = ViewHolder(parent.inflate(R.layout.item_registered_host))
+	override fun onCreateViewHolder(parent: ViewGroup, viewType: Int)
+		= ViewHolder(ItemRegisteredHostBinding.inflate(LayoutInflater.from(parent.context), parent, false))
 
 	override fun getItemCount() = hosts.size
 
 	override fun onBindViewHolder(holder: ViewHolder, position: Int)
 	{
-		val view = holder.itemView
 		val host = hosts[position]
-		view.nameTextView.text = host.ps4Nickname
-		view.summaryTextView.text = host.ps4Mac.toString()
+		holder.binding.nameTextView.text = "${host.serverNickname} (${if(host.target.isPS5) "PS5" else "PS4"})"
+		holder.binding.summaryTextView.text = host.serverMac.toString()
 	}
 }

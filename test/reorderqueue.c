@@ -1,19 +1,4 @@
-/*
- * This file is part of Chiaki.
- *
- * Chiaki is free software: you can redistribute it and/or modify
- * it under the terms of the GNU General Public License as published by
- * the Free Software Foundation, either version 3 of the License, or
- * (at your option) any later version.
- *
- * Chiaki is distributed in the hope that it will be useful,
- * but WITHOUT ANY WARRANTY; without even the implied warranty of
- * MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
- * GNU General Public License for more details.
- *
- * You should have received a copy of the GNU General Public License
- * along with Chiaki.  If not, see <https://www.gnu.org/licenses/>.
- */
+// SPDX-License-Identifier: LicenseRef-AGPL-3.0-only-OpenSSL
 
 #include <munit.h>
 
@@ -31,7 +16,7 @@ typedef struct drop_record_t
 static void drop(uint64_t seq_num, void *elem_user, void *cb_user)
 {
 	DropRecord *record = cb_user;
-	uint64_t v = (uint64_t)elem_user;
+	uint64_t v = (uint64_t)(size_t)elem_user;
 	if(v > DROP_RECORD_MAX)
 	{
 		record->failed = true;
@@ -73,7 +58,7 @@ static MunitResult test_reorder_queue_16(const MunitParameter params[], void *te
 	munit_assert_uint64(chiaki_reorder_queue_count(&queue), ==, 0);
 	munit_assert(!drop_record.failed);
 	munit_assert_uint64(drop_record.count[0], ==, 0);
-	munit_assert_uint64((uint64_t)user, ==, 0);
+	munit_assert_uint64((uint64_t)(size_t)user, ==, 0);
 	munit_assert_uint64(seq_num, ==, 42);
 
 	// push outdated
@@ -120,22 +105,22 @@ static MunitResult test_reorder_queue_16(const MunitParameter params[], void *te
 	pulled = chiaki_reorder_queue_pull(&queue, &seq_num, &user);
 	munit_assert(pulled);
 	munit_assert_uint64(seq_num, ==, 44);
-	munit_assert_uint64((uint64_t)user, ==, 3);
+	munit_assert_uint64((uint64_t)(size_t)user, ==, 3);
 
 	pulled = chiaki_reorder_queue_pull(&queue, &seq_num, &user);
 	munit_assert(pulled);
 	munit_assert_uint64(seq_num, ==, 45);
-	munit_assert_uint64((uint64_t)user, ==, 2);
+	munit_assert_uint64((uint64_t)(size_t)user, ==, 2);
 
 	pulled = chiaki_reorder_queue_pull(&queue, &seq_num, &user);
 	munit_assert(pulled);
 	munit_assert_uint64(seq_num, ==, 46);
-	munit_assert_uint64((uint64_t)user, ==, 1);
+	munit_assert_uint64((uint64_t)(size_t)user, ==, 1);
 
 	pulled = chiaki_reorder_queue_pull(&queue, &seq_num, &user);
 	munit_assert(pulled);
 	munit_assert_uint64(seq_num, ==, 47);
-	munit_assert_uint64((uint64_t)user, ==, 5);
+	munit_assert_uint64((uint64_t)(size_t)user, ==, 5);
 
 	// should be empty now again
 	pulled = chiaki_reorder_queue_pull(&queue, &seq_num, &user);
@@ -157,7 +142,7 @@ static MunitResult test_reorder_queue_16(const MunitParameter params[], void *te
 	pulled = chiaki_reorder_queue_pull(&queue, &seq_num, &user);
 	munit_assert(pulled);
 	munit_assert_uint64(seq_num, ==, 1337);
-	munit_assert_uint64((uint64_t)user, ==, 6);
+	munit_assert_uint64((uint64_t)(size_t)user, ==, 6);
 	munit_assert_uint64(chiaki_reorder_queue_count(&queue), ==, 0);
 
 	// same as before, but with an element in the queue that will be dropped
@@ -178,7 +163,7 @@ static MunitResult test_reorder_queue_16(const MunitParameter params[], void *te
 	pulled = chiaki_reorder_queue_pull(&queue, &seq_num, &user);
 	munit_assert(pulled);
 	munit_assert_uint64(seq_num, ==, 2000);
-	munit_assert_uint64((uint64_t)user, ==, 8);
+	munit_assert_uint64((uint64_t)(size_t)user, ==, 8);
 	munit_assert_uint64(chiaki_reorder_queue_count(&queue), ==, 0);
 
 	chiaki_reorder_queue_fini(&queue);

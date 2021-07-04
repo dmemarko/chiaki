@@ -1,19 +1,4 @@
-/*
- * This file is part of Chiaki.
- *
- * Chiaki is free software: you can redistribute it and/or modify
- * it under the terms of the GNU General Public License as published by
- * the Free Software Foundation, either version 3 of the License, or
- * (at your option) any later version.
- *
- * Chiaki is distributed in the hope that it will be useful,
- * but WITHOUT ANY WARRANTY; without even the implied warranty of
- * MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
- * GNU General Public License for more details.
- *
- * You should have received a copy of the GNU General Public License
- * along with Chiaki.  If not, see <https://www.gnu.org/licenses/>.
- */
+// SPDX-License-Identifier: LicenseRef-AGPL-3.0-only-OpenSSL
 
 package com.metallic.chiaki.regist
 
@@ -27,8 +12,9 @@ import androidx.lifecycle.Observer
 import androidx.lifecycle.ViewModelProvider
 import com.metallic.chiaki.R
 import com.metallic.chiaki.common.ext.RevealActivity
+import com.metallic.chiaki.databinding.ActivityRegistBinding
 import com.metallic.chiaki.lib.RegistInfo
-import kotlinx.android.synthetic.main.activity_regist.*
+import com.metallic.chiaki.lib.Target
 import java.lang.IllegalArgumentException
 
 class RegistActivity: AppCompatActivity(), RevealActivity
@@ -44,90 +30,106 @@ class RegistActivity: AppCompatActivity(), RevealActivity
 		private const val REQUEST_REGIST = 1
 	}
 
+	private lateinit var viewModel: RegistViewModel
+	private lateinit var binding: ActivityRegistBinding
+
 	override val revealWindow: Window get() = window
 	override val revealIntent: Intent get() = intent
-	override val revealRootLayout: View get() = rootLayout
-
-	private lateinit var viewModel: RegistViewModel
+	override val revealRootLayout: View get() = binding.rootLayout
 
 	override fun onCreate(savedInstanceState: Bundle?)
 	{
 		super.onCreate(savedInstanceState)
-		setContentView(R.layout.activity_regist)
+		binding = ActivityRegistBinding.inflate(layoutInflater)
+		setContentView(binding.root)
 		handleReveal()
 
 		viewModel = ViewModelProvider(this).get(RegistViewModel::class.java)
 
-		hostEditText.setText(intent.getStringExtra(EXTRA_HOST) ?: "255.255.255.255")
-		broadcastCheckBox.isChecked = intent.getBooleanExtra(EXTRA_BROADCAST, true)
+		binding.hostEditText.setText(intent.getStringExtra(EXTRA_HOST) ?: "255.255.255.255")
+		binding.broadcastCheckBox.isChecked = intent.getBooleanExtra(EXTRA_BROADCAST, true)
 
-		registButton.setOnClickListener { doRegist() }
+		binding.registButton.setOnClickListener { doRegist() }
 
-		ps4VersionRadioGroup.check(when(viewModel.ps4Version.value ?: RegistViewModel.PS4Version.GE_7) {
-			RegistViewModel.PS4Version.GE_7 -> R.id.ps4VersionGE7RadioButton
-			RegistViewModel.PS4Version.LT_7 -> R.id.ps4VersionLT7RadioButton
+		binding.ps4VersionRadioGroup.check(when(viewModel.ps4Version.value ?: RegistViewModel.ConsoleVersion.PS5) {
+			RegistViewModel.ConsoleVersion.PS5 -> R.id.ps5RadioButton
+			RegistViewModel.ConsoleVersion.PS4_GE_8 -> R.id.ps4VersionGE8RadioButton
+			RegistViewModel.ConsoleVersion.PS4_GE_7 -> R.id.ps4VersionGE7RadioButton
+			RegistViewModel.ConsoleVersion.PS4_LT_7 -> R.id.ps4VersionLT7RadioButton
 		})
 
-		ps4VersionRadioGroup.setOnCheckedChangeListener { _, checkedId ->
+		binding.ps4VersionRadioGroup.setOnCheckedChangeListener { _, checkedId ->
 			viewModel.ps4Version.value = when(checkedId)
 			{
-				R.id.ps4VersionGE7RadioButton -> RegistViewModel.PS4Version.GE_7
-				R.id.ps4VersionLT7RadioButton -> RegistViewModel.PS4Version.LT_7
-				else -> RegistViewModel.PS4Version.GE_7
+				R.id.ps5RadioButton -> RegistViewModel.ConsoleVersion.PS5
+				R.id.ps4VersionGE8RadioButton -> RegistViewModel.ConsoleVersion.PS4_GE_8
+				R.id.ps4VersionGE7RadioButton -> RegistViewModel.ConsoleVersion.PS4_GE_7
+				R.id.ps4VersionLT7RadioButton -> RegistViewModel.ConsoleVersion.PS4_LT_7
+				else -> RegistViewModel.ConsoleVersion.PS5
 			}
 		}
 
 		viewModel.ps4Version.observe(this, Observer {
-			psnAccountIdHelpGroup.visibility = if(it == RegistViewModel.PS4Version.GE_7) View.VISIBLE else View.GONE
-			psnIdTextInputLayout.hint = getString(when(it!!)
+			binding.psnAccountIdHelpGroup.visibility = if(it == RegistViewModel.ConsoleVersion.PS4_LT_7) View.GONE else View.VISIBLE
+			binding.psnIdTextInputLayout.hint = getString(when(it!!)
 			{
-				RegistViewModel.PS4Version.GE_7 -> R.string.hint_regist_psn_account_id
-				RegistViewModel.PS4Version.LT_7 -> R.string.hint_regist_psn_online_id
+				RegistViewModel.ConsoleVersion.PS4_LT_7 -> R.string.hint_regist_psn_online_id
+				else -> R.string.hint_regist_psn_account_id
 			})
+			binding.pinHelpBeforeTextView.setText(if(it.isPS5) R.string.regist_pin_instructions_ps5_before else R.string.regist_pin_instructions_ps4_before)
+			binding.pinHelpNavigationTextView.setText(if(it.isPS5) R.string.regist_pin_instructions_ps5_navigation else R.string.regist_pin_instructions_ps4_navigation)
 		})
 	}
 
 	private fun doRegist()
 	{
-		val ps4Version = viewModel.ps4Version.value ?: RegistViewModel.PS4Version.GE_7
+		val ps4Version = viewModel.ps4Version.value ?: RegistViewModel.ConsoleVersion.PS5
 
-		val host = hostEditText.text.toString().trim()
+		val host = binding.hostEditText.text.toString().trim()
 		val hostValid = host.isNotEmpty()
-		val broadcast = broadcastCheckBox.isChecked
+		val broadcast = binding.broadcastCheckBox.isChecked
 
-		val psnId = psnIdEditText.text.toString().trim()
-		val psnOnlineId: String? = if(ps4Version == RegistViewModel.PS4Version.LT_7) psnId else null
+		val psnId = binding.psnIdEditText.text.toString().trim()
+		val psnOnlineId: String? = if(ps4Version == RegistViewModel.ConsoleVersion.PS4_LT_7) psnId else null
 		val psnAccountId: ByteArray? =
-			if(ps4Version == RegistViewModel.PS4Version.GE_7)
+			if(ps4Version != RegistViewModel.ConsoleVersion.PS4_LT_7)
 				try { Base64.decode(psnId, Base64.DEFAULT) } catch(e: IllegalArgumentException) { null }
 			else
 				null
 		val psnIdValid = when(ps4Version)
 		{
-			RegistViewModel.PS4Version.GE_7 -> psnAccountId != null && psnAccountId.size == RegistInfo.ACCOUNT_ID_SIZE
-			RegistViewModel.PS4Version.LT_7 -> psnOnlineId?.isNotEmpty() ?: false
+			RegistViewModel.ConsoleVersion.PS4_LT_7 -> psnOnlineId?.isNotEmpty() ?: false
+			else -> psnAccountId != null && psnAccountId.size == RegistInfo.ACCOUNT_ID_SIZE
 		}
 
 
-		val pin = pinEditText.text.toString()
+		val pin = binding.pinEditText.text.toString()
 		val pinValid = pin.length == PIN_LENGTH
 
-		hostEditText.error = if(!hostValid) getString(R.string.entered_host_invalid) else null
-		psnIdEditText.error =
+		binding.hostEditText.error = if(!hostValid) getString(R.string.entered_host_invalid) else null
+		binding.psnIdEditText.error =
 			if(!psnIdValid)
 				getString(when(ps4Version)
 				{
-					RegistViewModel.PS4Version.GE_7 -> R.string.regist_psn_account_id_invalid
-					RegistViewModel.PS4Version.LT_7 -> R.string.regist_psn_online_id_invalid
+					RegistViewModel.ConsoleVersion.PS4_LT_7 -> R.string.regist_psn_online_id_invalid
+					else -> R.string.regist_psn_account_id_invalid
 				})
 			else
 				null
-		pinEditText.error = if(!pinValid) getString(R.string.regist_pin_invalid, PIN_LENGTH) else null
+		binding.pinEditText.error = if(!pinValid) getString(R.string.regist_pin_invalid, PIN_LENGTH) else null
 
 		if(!hostValid || !psnIdValid || !pinValid)
 			return
 
-		val registInfo = RegistInfo(host, broadcast, psnOnlineId, psnAccountId, pin.toInt())
+		val target = when(ps4Version)
+		{
+			RegistViewModel.ConsoleVersion.PS5 -> Target.PS5_1
+			RegistViewModel.ConsoleVersion.PS4_GE_8 -> Target.PS4_10
+			RegistViewModel.ConsoleVersion.PS4_GE_7 -> Target.PS4_9
+			RegistViewModel.ConsoleVersion.PS4_LT_7 -> Target.PS4_8
+		}
+
+		val registInfo = RegistInfo(target, host, broadcast, psnOnlineId, psnAccountId, pin.toInt())
 
 		Intent(this, RegistExecuteActivity::class.java).also {
 			it.putExtra(RegistExecuteActivity.EXTRA_REGIST_INFO, registInfo)

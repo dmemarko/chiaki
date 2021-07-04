@@ -1,19 +1,4 @@
-/*
- * This file is part of Chiaki.
- *
- * Chiaki is free software: you can redistribute it and/or modify
- * it under the terms of the GNU General Public License as published by
- * the Free Software Foundation, either version 3 of the License, or
- * (at your option) any later version.
- *
- * Chiaki is distributed in the hope that it will be useful,
- * but WITHOUT ANY WARRANTY; without even the implied warranty of
- * MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
- * GNU General Public License for more details.
- *
- * You should have received a copy of the GNU General Public License
- * along with Chiaki.  If not, see <https://www.gnu.org/licenses/>.
- */
+// SPDX-License-Identifier: LicenseRef-AGPL-3.0-only-OpenSSL
 
 #include <controllermanager.h>
 
@@ -25,6 +10,63 @@
 #ifdef CHIAKI_GUI_ENABLE_SDL_GAMECONTROLLER
 #include <SDL.h>
 #endif
+
+static QSet<QString> chiaki_motion_controller_guids({
+	// Sony on Linux
+	"03000000341a00003608000011010000",
+	"030000004c0500006802000010010000",
+	"030000004c0500006802000010810000",
+	"030000004c0500006802000011010000",
+	"030000004c0500006802000011810000",
+	"030000006f0e00001402000011010000",
+	"030000008f0e00000300000010010000",
+	"050000004c0500006802000000010000",
+	"050000004c0500006802000000800000",
+	"050000004c0500006802000000810000",
+	"05000000504c415953544154494f4e00",
+	"060000004c0500006802000000010000",
+	"030000004c050000a00b000011010000",
+	"030000004c050000a00b000011810000",
+	"030000004c050000c405000011010000",
+	"030000004c050000c405000011810000",
+	"030000004c050000cc09000000010000",
+	"030000004c050000cc09000011010000",
+	"030000004c050000cc09000011810000",
+	"03000000c01100000140000011010000",
+	"050000004c050000c405000000010000",
+	"050000004c050000c405000000810000",
+	"050000004c050000c405000001800000",
+	"050000004c050000cc09000000010000",
+	"050000004c050000cc09000000810000",
+	"050000004c050000cc09000001800000",
+	// Sony on iOS
+	"050000004c050000cc090000df070000",
+	// Sony on Android
+	"050000004c05000068020000dfff3f00",
+	"030000004c050000cc09000000006800",
+	"050000004c050000c4050000fffe3f00",
+	"050000004c050000cc090000fffe3f00",
+	"050000004c050000cc090000ffff3f00",
+	"35643031303033326130316330353564",
+	// Sony on Mac OSx
+	"030000004c050000cc09000000000000",
+	"030000004c0500006802000000000000",
+	"030000004c0500006802000000010000",
+	"030000004c050000a00b000000010000",
+	"030000004c050000c405000000000000",
+	"030000004c050000c405000000010000",
+	"030000004c050000cc09000000010000",
+	"03000000c01100000140000000010000",
+	// Sony on Windows
+	"030000004c050000a00b000000000000",
+	"030000004c050000c405000000000000",
+	"030000004c050000cc09000000000000",
+	"03000000250900000500000000000000",
+	"030000004c0500006802000000000000",
+	"03000000632500007505000000000000",
+	"03000000888800000803000000000000",
+	"030000008f0e00001431000000000000",
+});
 
 static ControllerManager *instance = nullptr;
 
@@ -71,6 +113,24 @@ void ControllerManager::UpdateAvailableControllers()
 	{
 		if(!SDL_IsGameController(i))
 			continue;
+
+		// We'll try to identify pads with Motion Control
+		SDL_JoystickGUID guid = SDL_JoystickGetGUID(SDL_JoystickOpen(i));
+		char guid_str[256];
+		SDL_JoystickGetGUIDString(guid, guid_str, sizeof(guid_str));
+
+		if(chiaki_motion_controller_guids.contains(guid_str))
+		{
+			SDL_Joystick *joy = SDL_JoystickOpen(i);
+			if(joy)
+			{
+				bool no_buttons = SDL_JoystickNumButtons(joy) == 0;
+				SDL_JoystickClose(joy);
+				if(no_buttons)
+					continue;
+			}
+		}
+
 		current_controllers.insert(SDL_JoystickGetDeviceInstanceID(i));
 	}
 
@@ -113,10 +173,10 @@ void ControllerManager::ControllerEvent(int device_id)
 	open_controllers[device_id]->UpdateState();
 }
 
-QList<int> ControllerManager::GetAvailableControllers()
+QSet<int> ControllerManager::GetAvailableControllers()
 {
 #ifdef CHIAKI_GUI_ENABLE_SDL_GAMECONTROLLER
-	return available_controllers.values();
+	return available_controllers;
 #else
 	return {};
 #endif
@@ -191,7 +251,11 @@ QString Controller::GetName()
 #ifdef CHIAKI_GUI_ENABLE_SDL_GAMECONTROLLER
 	if(!controller)
 		return QString();
-	return SDL_GameControllerName(controller);
+	SDL_Joystick *js = SDL_GameControllerGetJoystick(controller);
+	SDL_JoystickGUID guid = SDL_JoystickGetGUID(js);
+	char guid_str[256];
+	SDL_JoystickGetGUIDString(guid, guid_str, sizeof(guid_str));
+	return QString("%1 (%2)").arg(SDL_JoystickName(js), guid_str);
 #else
 	return QString();
 #endif
@@ -229,4 +293,13 @@ ChiakiControllerState Controller::GetState()
 
 #endif
 	return state;
+}
+
+void Controller::SetRumble(uint8_t left, uint8_t right)
+{
+#ifdef CHIAKI_GUI_ENABLE_SDL_GAMECONTROLLER
+	if(!controller)
+		return;
+	SDL_GameControllerRumble(controller, (uint16_t)left << 8, (uint16_t)right << 8, 5000);
+#endif
 }

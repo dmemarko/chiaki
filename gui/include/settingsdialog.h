@@ -1,19 +1,4 @@
-/*
- * This file is part of Chiaki.
- *
- * Chiaki is free software: you can redistribute it and/or modify
- * it under the terms of the GNU General Public License as published by
- * the Free Software Foundation, either version 3 of the License, or
- * (at your option) any later version.
- *
- * Chiaki is distributed in the hope that it will be useful,
- * but WITHOUT ANY WARRANTY; without even the implied warranty of
- * MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
- * GNU General Public License for more details.
- *
- * You should have received a copy of the GNU General Public License
- * along with Chiaki.  If not, see <https://www.gnu.org/licenses/>.
- */
+// SPDX-License-Identifier: LicenseRef-AGPL-3.0-only-OpenSSL
 
 #ifndef CHIAKI_SETTINGSDIALOG_H
 #define CHIAKI_SETTINGSDIALOG_H
@@ -34,12 +19,16 @@ class SettingsDialog : public QDialog
 		Settings *settings;
 
 		QCheckBox *log_verbose_check_box;
+		QComboBox *disconnect_action_combo_box;
 
 		QComboBox *resolution_combo_box;
 		QComboBox *fps_combo_box;
 		QLineEdit *bitrate_edit;
+		QComboBox *codec_combo_box;
 		QLineEdit *audio_buffer_size_edit;
-		QComboBox *hardware_decode_combo_box;
+		QComboBox *audio_device_combo_box;
+		QCheckBox *pi_decoder_check_box;
+		QComboBox *hw_decoder_combo_box;
 
 		QListWidget *registered_hosts_list_widget;
 		QPushButton *delete_registered_host_button;
@@ -48,12 +37,16 @@ class SettingsDialog : public QDialog
 
 	private slots:
 		void LogVerboseChanged();
+		void DisconnectActionSelected();
 
 		void ResolutionSelected();
 		void FPSSelected();
 		void BitrateEdited();
+		void CodecSelected();
 		void AudioBufferSizeEdited();
+		void AudioOutputSelected();
 		void HardwareDecodeEngineSelected();
+		void UpdateHardwareDecodeEngineComboBox();
 
 		void UpdateRegisteredHosts();
 		void UpdateRegisteredHostsButtons();

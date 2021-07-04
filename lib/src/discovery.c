@@ -1,19 +1,4 @@
-/*
- * This file is part of Chiaki.
- *
- * Chiaki is free software: you can redistribute it and/or modify
- * it under the terms of the GNU General Public License as published by
- * the Free Software Foundation, either version 3 of the License, or
- * (at your option) any later version.
- *
- * Chiaki is distributed in the hope that it will be useful,
- * but WITHOUT ANY WARRANTY; without even the implied warranty of
- * MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
- * GNU General Public License for more details.
- *
- * You should have received a copy of the GNU General Public License
- * along with Chiaki.  If not, see <https://www.gnu.org/licenses/>.
- */
+// SPDX-License-Identifier: LicenseRef-AGPL-3.0-only-OpenSSL
 
 #include "utils.h"
 
@@ -47,14 +32,47 @@ const char *chiaki_discovery_host_state_string(ChiakiDiscoveryHostState state)
 	}
 }
 
+CHIAKI_EXPORT bool chiaki_discovery_host_is_ps5(ChiakiDiscoveryHost *host)
+{
+	return host->device_discovery_protocol_version
+		&& !strcmp(host->device_discovery_protocol_version, CHIAKI_DISCOVERY_PROTOCOL_VERSION_PS5);
+}
+
+CHIAKI_EXPORT ChiakiTarget chiaki_discovery_host_system_version_target(ChiakiDiscoveryHost *host)
+{
+	// traslate discovered system_version into ChiakiTarget
+
+	int version = atoi(host->system_version);
+	bool is_ps5 = chiaki_discovery_host_is_ps5(host);
+
+	if(version >= 8050001 && is_ps5)
+		// PS5 >= 1.0
+		return CHIAKI_TARGET_PS5_1;
+	if(version >= 8050000 && is_ps5)
+		// PS5 >= 0
+		return CHIAKI_TARGET_PS5_UNKNOWN;
+
+	if(version >= 8000000)
+		// PS4 >= 8.0
+		return CHIAKI_TARGET_PS4_10;
+	if(version >= 7000000)
+		// PS4 >= 7.0
+		return CHIAKI_TARGET_PS4_9;
+	if(version > 0)
+		return CHIAKI_TARGET_PS4_8;
+
+	return CHIAKI_TARGET_PS4_UNKNOWN;
+}
+
 CHIAKI_EXPORT int chiaki_discovery_packet_fmt(char *buf, size_t buf_size, ChiakiDiscoveryPacket *packet)
 {
-	const char *version_str = packet->protocol_version ? packet->protocol_version : CHIAKI_DISCOVERY_PROTOCOL_VERSION;
+	if(!packet->protocol_version)
+		return -1;
 	switch(packet->cmd)
 	{
 		case CHIAKI_DISCOVERY_CMD_SRCH:
 			return snprintf(buf, buf_size, "SRCH * HTTP/1.1\ndevice-discovery-protocol-version:%s\n",
-							version_str);
+							packet->protocol_version);
 		case CHIAKI_DISCOVERY_CMD_WAKEUP:
 			return snprintf(buf, buf_size,
 				"WAKEUP * HTTP/1.1\n"
@@ -64,7 +82,7 @@ CHIAKI_EXPORT int chiaki_discovery_packet_fmt(char *buf, size_t buf_size, Chiaki
 				"app-type:r\n"
 				"user-credential:%llu\n"
 				"device-discovery-protocol-version:%s\n",
-				(unsigned long long)packet->user_credential, version_str);
+				(unsigned long long)packet->user_credential, packet->protocol_version);
 		default:
 			return -1;
 	}
@@ -134,27 +152,48 @@ CHIAKI_EXPORT ChiakiErrorCode chiaki_discovery_init(ChiakiDiscovery *discovery, 
 		return CHIAKI_ERR_NETWORK;
 	}
 
-	memset(&discovery->local_addr, 0, sizeof(discovery->local_addr));
-	discovery->local_addr.sa_family = family;
-	if(family == AF_INET6)
+	// First try CHIAKI_DISCOVERY_PORT_LOCAL_MIN..<MAX, then 0 (random)
+	uint16_t port = CHIAKI_DISCOVERY_PORT_LOCAL_MIN;
+	int r;
+	while(true)
 	{
+		memset(&discovery->local_addr, 0, sizeof(discovery->local_addr));
+		discovery->local_addr.sa_family = family;
+		if(family == AF_INET6)
+		{
 #ifndef __SWITCH__
-		struct in6_addr anyaddr = IN6ADDR_ANY_INIT;
+			struct in6_addr anyaddr = IN6ADDR_ANY_INIT;
 #endif
-		struct sockaddr_in6 *addr = (struct sockaddr_in6 *)&discovery->local_addr;
+			struct sockaddr_in6 *addr = (struct sockaddr_in6 *)&discovery->local_addr;
 #ifndef __SWITCH__
-		addr->sin6_addr = anyaddr;
+			addr->sin6_addr = anyaddr;
 #endif
-		addr->sin6_port = htons(0);
-	}
-	else // AF_INET
-	{
-		struct sockaddr_in *addr = (struct sockaddr_in *)&discovery->local_addr;
-		addr->sin_addr.s_addr = htonl(INADDR_ANY);
-		addr->sin_port = htons(0);
+			addr->sin6_port = htons(port);
+		}
+		else // AF_INET
+		{
+			struct sockaddr_in *addr = (struct sockaddr_in *)&discovery->local_addr;
+			addr->sin_addr.s_addr = htonl(INADDR_ANY);
+			addr->sin_port = htons(port);
+		}
+
+		r = bind(discovery->socket, &discovery->local_addr, sizeof(discovery->local_addr));
+		if(r >= 0 || !port)
+			break;
+		if(port == CHIAKI_DISCOVERY_PORT_LOCAL_MAX)
+		{
+			port = 0;
+			CHIAKI_LOGI(discovery->log, "Discovery failed to bind port %u, trying random",
+					(unsigned int)port);
+		}
+		else
+		{
+			port++;
+			CHIAKI_LOGI(discovery->log, "Discovery failed to bind port %u, trying one higher",
+					(unsigned int)port);
+		}
 	}
 
-	int r = bind(discovery->socket, &discovery->local_addr, sizeof(discovery->local_addr));
 	if(r < 0)
 	{
 		CHIAKI_LOGE(discovery->log, "Discovery failed to bind");
@@ -194,6 +233,8 @@ CHIAKI_EXPORT ChiakiErrorCode chiaki_discovery_send(ChiakiDiscovery *discovery, 
 	if((size_t)len >= sizeof(buf))
 		return CHIAKI_ERR_BUF_TOO_SMALL;
 
+	CHIAKI_LOGV(discovery->log, "Discovery sending:");
+	chiaki_log_hexdump(discovery->log, CHIAKI_LOG_VERBOSE, (const uint8_t *)buf, (size_t)len + 1);
 	int rc = sendto_broadcast(discovery->log, discovery->socket, buf, (size_t)len + 1, 0, addr, addr_size);
 	if(rc < 0)
 	{
@@ -295,7 +336,7 @@ static void *discovery_thread_func(void *user)
 	return NULL;
 }
 
-CHIAKI_EXPORT ChiakiErrorCode chiaki_discovery_wakeup(ChiakiLog *log, ChiakiDiscovery *discovery, const char *host, uint64_t user_credential)
+CHIAKI_EXPORT ChiakiErrorCode chiaki_discovery_wakeup(ChiakiLog *log, ChiakiDiscovery *discovery, const char *host, uint64_t user_credential, bool ps5)
 {
 	struct addrinfo *addrinfos;
 	int r = getaddrinfo(host, NULL, NULL, &addrinfos); // TODO: this blocks, use something else
@@ -326,10 +367,11 @@ CHIAKI_EXPORT ChiakiErrorCode chiaki_discovery_wakeup(ChiakiLog *log, ChiakiDisc
 		return CHIAKI_ERR_UNKNOWN;
 	}
 
-	((struct sockaddr_in *)&addr)->sin_port = htons(CHIAKI_DISCOVERY_PORT);
+	((struct sockaddr_in *)&addr)->sin_port = htons(ps5 ? CHIAKI_DISCOVERY_PORT_PS5 : CHIAKI_DISCOVERY_PORT_PS4);
 
 	ChiakiDiscoveryPacket packet = { 0 };
 	packet.cmd = CHIAKI_DISCOVERY_CMD_WAKEUP;
+	packet.protocol_version = ps5 ? CHIAKI_DISCOVERY_PROTOCOL_VERSION_PS5 : CHIAKI_DISCOVERY_PROTOCOL_VERSION_PS4;
 	packet.user_credential = user_credential;
 
 	ChiakiErrorCode err;

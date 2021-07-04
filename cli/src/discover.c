@@ -1,19 +1,4 @@
-/*
- * This file is part of Chiaki.
- *
- * Chiaki is free software: you can redistribute it and/or modify
- * it under the terms of the GNU General Public License as published by
- * the Free Software Foundation, either version 3 of the License, or
- * (at your option) any later version.
- *
- * Chiaki is distributed in the hope that it will be useful,
- * but WITHOUT ANY WARRANTY; without even the implied warranty of
- * MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
- * GNU General Public License for more details.
- *
- * You should have received a copy of the GNU General Public License
- * along with Chiaki.  If not, see <https://www.gnu.org/licenses/>.
- */
+// SPDX-License-Identifier: LicenseRef-AGPL-3.0-only-OpenSSL
 
 #include <chiaki-cli.h>
 
@@ -157,16 +142,22 @@ CHIAKI_EXPORT int chiaki_cli_cmd_discover(ChiakiLog *log, int argc, char *argv[]
 		return 1;
 	}
 
-	((struct sockaddr_in *)host_addr)->sin_port = htons(CHIAKI_DISCOVERY_PORT); // TODO: IPv6
-
 	ChiakiDiscoveryPacket packet;
 	memset(&packet, 0, sizeof(packet));
 	packet.cmd = CHIAKI_DISCOVERY_CMD_SRCH;
-
-	chiaki_discovery_send(&discovery, &packet, host_addr, host_addr_len);
+	packet.protocol_version = CHIAKI_DISCOVERY_PROTOCOL_VERSION_PS4;
+	((struct sockaddr_in *)host_addr)->sin_port = htons(CHIAKI_DISCOVERY_PORT_PS4);
+	err = chiaki_discovery_send(&discovery, &packet, host_addr, host_addr_len);
+	if(err != CHIAKI_ERR_SUCCESS)
+		CHIAKI_LOGE(log, "Failed to send discovery packet for PS4: %s", chiaki_error_string(err));
+	packet.protocol_version = CHIAKI_DISCOVERY_PROTOCOL_VERSION_PS5;
+	((struct sockaddr_in *)host_addr)->sin_port = htons(CHIAKI_DISCOVERY_PORT_PS5);
+	err = chiaki_discovery_send(&discovery, &packet, host_addr, host_addr_len);
+	if(err != CHIAKI_ERR_SUCCESS)
+		CHIAKI_LOGE(log, "Failed to send discovery packet for PS5: %s", chiaki_error_string(err));
 
 	while(1)
-		sleep(1);
+		sleep(1); // TODO: wtf
 
 	return 0;
 }

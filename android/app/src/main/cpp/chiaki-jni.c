@@ -1,19 +1,4 @@
-/*
- * This file is part of Chiaki.
- *
- * Chiaki is free software: you can redistribute it and/or modify
- * it under the terms of the GNU General Public License as published by
- * the Free Software Foundation, either version 3 of the License, or
- * (at your option) any later version.
- *
- * Chiaki is distributed in the hope that it will be useful,
- * but WITHOUT ANY WARRANTY; without even the implied warranty of
- * MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
- * GNU General Public License for more details.
- *
- * You should have received a copy of the GNU General Public License
- * along with Chiaki.  If not, see <https://www.gnu.org/licenses/>.
- */
+// SPDX-License-Identifier: LicenseRef-AGPL-3.0-only-OpenSSL
 
 #include <jni.h>
 
@@ -130,13 +115,13 @@ JNIEXPORT jboolean JNICALL JNI_FCN(quitReasonIsStopped)(JNIEnv *env, jobject obj
 	return value == CHIAKI_QUIT_REASON_STOPPED;
 }
 
-JNIEXPORT jobject JNICALL JNI_FCN(videoProfilePreset)(JNIEnv *env, jobject obj, jint resolution_preset, jint fps_preset)
+JNIEXPORT jobject JNICALL JNI_FCN(videoProfilePreset)(JNIEnv *env, jobject obj, jint resolution_preset, jint fps_preset, jobject codec)
 {
 	ChiakiConnectVideoProfile profile = { 0 };
 	chiaki_connect_video_profile_preset(&profile, (ChiakiVideoResolutionPreset)resolution_preset, (ChiakiVideoFPSPreset)fps_preset);
 	jclass profile_class = E->FindClass(env, BASE_PACKAGE"/ConnectVideoProfile");
-	jmethodID profile_ctor = E->GetMethodID(env, profile_class, "<init>", "(IIII)V");
-	return E->NewObject(env, profile_class, profile_ctor, profile.width, profile.height, profile.max_fps, profile.bitrate);
+	jmethodID profile_ctor = E->GetMethodID(env, profile_class, "<init>", "(IIIIL"BASE_PACKAGE"/Codec;)V");
+	return E->NewObject(env, profile_class, profile_ctor, profile.width, profile.height, profile.max_fps, profile.bitrate, codec);
 }
 
 typedef struct android_chiaki_session_t
@@ -148,6 +133,7 @@ typedef struct android_chiaki_session_t
 	jmethodID java_session_event_connected_meth;
 	jmethodID java_session_event_login_pin_request_meth;
 	jmethodID java_session_event_quit_meth;
+	jmethodID java_session_event_rumble_meth;
 	jfieldID java_controller_state_buttons;
 	jfieldID java_controller_state_l2_state;
 	jfieldID java_controller_state_r2_state;
@@ -155,6 +141,20 @@ typedef struct android_chiaki_session_t
 	jfieldID java_controller_state_left_y;
 	jfieldID java_controller_state_right_x;
 	jfieldID java_controller_state_right_y;
+	jfieldID java_controller_state_touches;
+	jfieldID java_controller_state_gyro_x;
+	jfieldID java_controller_state_gyro_y;
+	jfieldID java_controller_state_gyro_z;
+	jfieldID java_controller_state_accel_x;
+	jfieldID java_controller_state_accel_y;
+	jfieldID java_controller_state_accel_z;
+	jfieldID java_controller_state_orient_x;
+	jfieldID java_controller_state_orient_y;
+	jfieldID java_controller_state_orient_z;
+	jfieldID java_controller_state_orient_w;
+	jfieldID java_controller_touch_x;
+	jfieldID java_controller_touch_y;
+	jfieldID java_controller_touch_id;
 
 	AndroidChiakiVideoDecoder video_decoder;
 	AndroidChiakiAudioDecoder audio_decoder;
@@ -193,6 +193,14 @@ static void android_chiaki_event_cb(ChiakiEvent *event, void *user)
 			free(reason_str);
 			break;
 		}
+		case CHIAKI_EVENT_RUMBLE:
+			E->CallVoidMethod(env, session->java_session,
+							  session->java_session_event_rumble_meth,
+							  (jint)event->rumble.left,
+							  (jint)event->rumble.right);
+			break;
+		default:
+			break;
 	}
 
 	(*global_vm)->DetachCurrentThread(global_vm);
@@ -213,13 +221,16 @@ JNIEXPORT void JNICALL JNI_FCN(sessionCreate)(JNIEnv *env, jobject obj, jobject 
 	jclass result_class = E->GetObjectClass(env, result);
 
 	jclass connect_info_class = E->GetObjectClass(env, connect_info_obj);
+	jboolean ps5 = E->GetBooleanField(env, connect_info_obj, E->GetFieldID(env, connect_info_class, "ps5", "Z"));
 	jstring host_string = E->GetObjectField(env, connect_info_obj, E->GetFieldID(env, connect_info_class, "host", "Ljava/lang/String;"));
 	jbyteArray regist_key_array = E->GetObjectField(env, connect_info_obj, E->GetFieldID(env, connect_info_class, "registKey", "[B"));
 	jbyteArray morning_array = E->GetObjectField(env, connect_info_obj, E->GetFieldID(env, connect_info_class, "morning", "[B"));
 	jobject connect_video_profile_obj = E->GetObjectField(env, connect_info_obj, E->GetFieldID(env, connect_info_class, "videoProfile", "L"BASE_PACKAGE"/ConnectVideoProfile;"));
 	jclass connect_video_profile_class = E->GetObjectClass(env, connect_video_profile_obj);
 
-	ChiakiConnectInfo connect_info;
+	ChiakiConnectInfo connect_info = { 0 };
+	connect_info.ps5 = ps5;
+
 	const char *str_borrow = E->GetStringUTFChars(env, host_string, NULL);
 	connect_info.host = host_str = strdup(str_borrow);
 	E->ReleaseStringUTFChars(env, host_string, str_borrow);
@@ -254,6 +265,13 @@ JNIEXPORT void JNICALL JNI_FCN(sessionCreate)(JNIEnv *env, jobject obj, jobject 
 	connect_info.video_profile.max_fps = (unsigned int)E->GetIntField(env, connect_video_profile_obj, E->GetFieldID(env, connect_video_profile_class, "maxFPS", "I"));
 	connect_info.video_profile.bitrate = (unsigned int)E->GetIntField(env, connect_video_profile_obj, E->GetFieldID(env, connect_video_profile_class, "bitrate", "I"));
 
+	jobject codec_obj = E->GetObjectField(env, connect_video_profile_obj, E->GetFieldID(env, connect_video_profile_class, "codec", "L"BASE_PACKAGE"/Codec;"));
+	jclass codec_class = E->GetObjectClass(env, codec_obj);
+	jint target_value = E->GetIntField(env, codec_obj, E->GetFieldID(env, codec_class, "value", "I"));
+	connect_info.video_profile.codec = (ChiakiCodec)target_value;
+
+	connect_info.video_profile_auto_downgrade = true;
+
 	session = CHIAKI_NEW(AndroidChiakiSession);
 	if(!session)
 	{
@@ -262,7 +280,8 @@ JNIEXPORT void JNICALL JNI_FCN(sessionCreate)(JNIEnv *env, jobject obj, jobject 
 	}
 	memset(session, 0, sizeof(AndroidChiakiSession));
 	session->log = log;
-	err = android_chiaki_video_decoder_init(&session->video_decoder, log, connect_info.video_profile.width, connect_info.video_profile.height);
+	err = android_chiaki_video_decoder_init(&session->video_decoder, log, connect_info.video_profile.width, connect_info.video_profile.height,
+			connect_info.ps5 ? connect_info.video_profile.codec : CHIAKI_CODEC_H264);
 	if(err != CHIAKI_ERR_SUCCESS)
 	{
 		free(session);
@@ -300,6 +319,7 @@ JNIEXPORT void JNICALL JNI_FCN(sessionCreate)(JNIEnv *env, jobject obj, jobject 
 	session->java_session_event_connected_meth = E->GetMethodID(env, session->java_session_class, "eventConnected", "()V");
 	session->java_session_event_login_pin_request_meth = E->GetMethodID(env, session->java_session_class, "eventLoginPinRequest", "(Z)V");
 	session->java_session_event_quit_meth = E->GetMethodID(env, session->java_session_class, "eventQuit", "(ILjava/lang/String;)V");
+	session->java_session_event_rumble_meth = E->GetMethodID(env, session->java_session_class, "eventRumble", "(II)V");
 
 	jclass controller_state_class = E->FindClass(env, BASE_PACKAGE"/ControllerState");
 	session->java_controller_state_buttons = E->GetFieldID(env, controller_state_class, "buttons", "I");
@@ -309,6 +329,22 @@ JNIEXPORT void JNICALL JNI_FCN(sessionCreate)(JNIEnv *env, jobject obj, jobject 
 	session->java_controller_state_left_y = E->GetFieldID(env, controller_state_class, "leftY", "S");
 	session->java_controller_state_right_x = E->GetFieldID(env, controller_state_class, "rightX", "S");
 	session->java_controller_state_right_y = E->GetFieldID(env, controller_state_class, "rightY", "S");
+	session->java_controller_state_touches = E->GetFieldID(env, controller_state_class, "touches", "[L"BASE_PACKAGE"/ControllerTouch;");
+	session->java_controller_state_gyro_x = E->GetFieldID(env, controller_state_class, "gyroX", "F");
+	session->java_controller_state_gyro_y = E->GetFieldID(env, controller_state_class, "gyroY", "F");
+	session->java_controller_state_gyro_z = E->GetFieldID(env, controller_state_class, "gyroZ", "F");
+	session->java_controller_state_accel_x = E->GetFieldID(env, controller_state_class, "accelX", "F");
+	session->java_controller_state_accel_y = E->GetFieldID(env, controller_state_class, "accelY", "F");
+	session->java_controller_state_accel_z = E->GetFieldID(env, controller_state_class, "accelZ", "F");
+	session->java_controller_state_orient_x = E->GetFieldID(env, controller_state_class, "orientX", "F");
+	session->java_controller_state_orient_y = E->GetFieldID(env, controller_state_class, "orientY", "F");
+	session->java_controller_state_orient_z = E->GetFieldID(env, controller_state_class, "orientZ", "F");
+	session->java_controller_state_orient_w = E->GetFieldID(env, controller_state_class, "orientW", "F");
+
+	jclass controller_touch_class = E->FindClass(env, BASE_PACKAGE"/ControllerTouch");
+	session->java_controller_touch_x = E->GetFieldID(env, controller_touch_class, "x", "S");
+	session->java_controller_touch_y = E->GetFieldID(env, controller_touch_class, "y", "S");
+	session->java_controller_touch_id = E->GetFieldID(env, controller_touch_class, "id", "B");
 
 	chiaki_session_set_event_cb(&session->session, android_chiaki_event_cb, session);
 	chiaki_session_set_video_sample_cb(&session->session, android_chiaki_video_decoder_video_sample, &session->video_decoder);
@@ -377,7 +413,8 @@ JNIEXPORT void JNICALL JNI_FCN(sessionSetSurface)(JNIEnv *env, jobject obj, jlon
 JNIEXPORT void JNICALL JNI_FCN(sessionSetControllerState)(JNIEnv *env, jobject obj, jlong ptr, jobject controller_state_java)
 {
 	AndroidChiakiSession *session = (AndroidChiakiSession *)ptr;
-	ChiakiControllerState controller_state = { 0 };
+	ChiakiControllerState controller_state;
+	chiaki_controller_state_set_idle(&controller_state);
 	controller_state.buttons = (uint32_t)E->GetIntField(env, controller_state_java, session->java_controller_state_buttons);
 	controller_state.l2_state = (uint8_t)E->GetByteField(env, controller_state_java, session->java_controller_state_l2_state);
 	controller_state.r2_state = (uint8_t)E->GetByteField(env, controller_state_java, session->java_controller_state_r2_state);
@@ -385,6 +422,34 @@ JNIEXPORT void JNICALL JNI_FCN(sessionSetControllerState)(JNIEnv *env, jobject o
 	controller_state.left_y = (int16_t)E->GetShortField(env, controller_state_java, session->java_controller_state_left_y);
 	controller_state.right_x = (int16_t)E->GetShortField(env, controller_state_java, session->java_controller_state_right_x);
 	controller_state.right_y = (int16_t)E->GetShortField(env, controller_state_java, session->java_controller_state_right_y);
+	jobjectArray touch_array = E->GetObjectField(env, controller_state_java, session->java_controller_state_touches);
+	size_t touch_array_len = (size_t)E->GetArrayLength(env, touch_array);
+	for(size_t i = 0; i < CHIAKI_CONTROLLER_TOUCHES_MAX; i++)
+	{
+		if(i < touch_array_len)
+		{
+			jobject touch = E->GetObjectArrayElement(env, touch_array, i);
+			controller_state.touches[i].x = (uint16_t)E->GetShortField(env, touch, session->java_controller_touch_x);
+			controller_state.touches[i].y = (uint16_t)E->GetShortField(env, touch, session->java_controller_touch_y);
+			controller_state.touches[i].id = (int8_t)E->GetByteField(env, touch, session->java_controller_touch_id);
+		}
+		else
+		{
+			controller_state.touches[i].x = 0;
+			controller_state.touches[i].y = 0;
+			controller_state.touches[i].id = -1;
+		}
+	}
+	controller_state.gyro_x = E->GetFloatField(env, controller_state_java, session->java_controller_state_gyro_x);
+	controller_state.gyro_y = E->GetFloatField(env, controller_state_java, session->java_controller_state_gyro_y);
+	controller_state.gyro_z = E->GetFloatField(env, controller_state_java, session->java_controller_state_gyro_z);
+	controller_state.accel_x = E->GetFloatField(env, controller_state_java, session->java_controller_state_accel_x);
+	controller_state.accel_y = E->GetFloatField(env, controller_state_java, session->java_controller_state_accel_y);
+	controller_state.accel_z = E->GetFloatField(env, controller_state_java, session->java_controller_state_accel_z);
+	controller_state.orient_x = E->GetFloatField(env, controller_state_java, session->java_controller_state_orient_x);
+	controller_state.orient_y = E->GetFloatField(env, controller_state_java, session->java_controller_state_orient_y);
+	controller_state.orient_z = E->GetFloatField(env, controller_state_java, session->java_controller_state_orient_z);
+	controller_state.orient_w = E->GetFloatField(env, controller_state_java, session->java_controller_state_orient_w);
 	chiaki_session_set_controller_state(&session->session, &controller_state);
 }
 
@@ -589,11 +654,11 @@ JNIEXPORT void JNICALL JNI_FCN(discoveryServiceFree)(JNIEnv *env, jobject obj, j
 	free(service);
 }
 
-JNIEXPORT jint JNICALL JNI_FCN(discoveryServiceWakeup)(JNIEnv *env, jobject obj, jlong ptr, jstring host_string, jlong user_credential)
+JNIEXPORT jint JNICALL JNI_FCN(discoveryServiceWakeup)(JNIEnv *env, jobject obj, jlong ptr, jstring host_string, jlong user_credential, jboolean ps5)
 {
 	AndroidDiscoveryService *service = (AndroidDiscoveryService *)ptr;
 	const char *host = E->GetStringUTFChars(env, host_string, NULL);
-	ChiakiErrorCode r = chiaki_discovery_wakeup(&global_log, service ? &service->service.discovery : NULL, host, (uint64_t)user_credential);
+	ChiakiErrorCode r = chiaki_discovery_wakeup(&global_log, service ? &service->service.discovery : NULL, host, (uint64_t)user_credential, ps5);
 	E->ReleaseStringUTFChars(env, host_string, host);
 	return r;
 }
@@ -607,6 +672,8 @@ typedef struct android_chiaki_regist_t
 	jobject java_regist;
 	jmethodID java_regist_event_meth;
 
+	jclass java_target_class;
+
 	jobject java_regist_event_canceled;
 	jobject java_regist_event_failed;
 	jclass java_regist_event_success_class;
@@ -615,6 +682,12 @@ typedef struct android_chiaki_regist_t
 	jclass java_regist_host_class;
 	jmethodID java_regist_host_ctor;
 } AndroidChiakiRegist;
+
+static jobject create_jni_target(JNIEnv *env, jclass target_class, ChiakiTarget target)
+{
+	jmethodID meth = E->GetStaticMethodID(env, target_class, "fromValue", "(I)L"BASE_PACKAGE"/Target;");
+	return E->CallStaticObjectMethod(env, target_class, meth, (jint)target);
+}
 
 static void android_chiaki_regist_cb(ChiakiRegistEvent *event, void *user)
 {
@@ -637,12 +710,13 @@ static void android_chiaki_regist_cb(ChiakiRegistEvent *event, void *user)
 		{
 			ChiakiRegisteredHost *host = event->registered_host;
 			jobject java_host = E->NewObject(env, regist->java_regist_host_class, regist->java_regist_host_ctor,
+					create_jni_target(env, regist->java_target_class, host->target),
 					jnistr_from_ascii(env, host->ap_ssid),
 					jnistr_from_ascii(env, host->ap_bssid),
 					jnistr_from_ascii(env, host->ap_key),
 					jnistr_from_ascii(env, host->ap_name),
-					jnibytearray_create(env, host->ps4_mac, sizeof(host->ps4_mac)),
-					jnistr_from_ascii(env, host->ps4_nickname),
+					jnibytearray_create(env, host->server_mac, sizeof(host->server_mac)),
+					jnistr_from_ascii(env, host->server_nickname),
 					jnibytearray_create(env, (const uint8_t *)host->rp_regist_key, sizeof(host->rp_regist_key)),
 					(jint)host->rp_key_type,
 					jnibytearray_create(env, host->rp_key, sizeof(host->rp_key)));
@@ -661,6 +735,7 @@ static void android_chiaki_regist_fini_partial(JNIEnv *env, AndroidChiakiRegist 
 {
 	android_chiaki_jni_log_fini(&regist->log, env);
 	E->DeleteGlobalRef(env, regist->java_regist);
+	E->DeleteGlobalRef(env, regist->java_target_class);
 	E->DeleteGlobalRef(env, regist->java_regist_event_canceled);
 	E->DeleteGlobalRef(env, regist->java_regist_event_failed);
 	E->DeleteGlobalRef(env, regist->java_regist_event_success_class);
@@ -683,6 +758,8 @@ JNIEXPORT void JNICALL JNI_FCN(registStart)(JNIEnv *env, jobject obj, jobject re
 	regist->java_regist = E->NewGlobalRef(env, java_regist);
 	regist->java_regist_event_meth = E->GetMethodID(env, E->GetObjectClass(env, regist->java_regist), "event", "(L"BASE_PACKAGE"/RegistEvent;)V");
 
+	regist->java_target_class = E->NewGlobalRef(env, E->FindClass(env, BASE_PACKAGE"/Target"));
+
 	regist->java_regist_event_canceled = E->NewGlobalRef(env, get_kotlin_global_object(env, BASE_PACKAGE"/RegistEventCanceled"));
 	regist->java_regist_event_failed = E->NewGlobalRef(env, get_kotlin_global_object(env, BASE_PACKAGE"/RegistEventFailed"));
 	regist->java_regist_event_success_class = E->NewGlobalRef(env, E->FindClass(env, BASE_PACKAGE"/RegistEventSuccess"));
@@ -690,18 +767,24 @@ JNIEXPORT void JNICALL JNI_FCN(registStart)(JNIEnv *env, jobject obj, jobject re
 
 	regist->java_regist_host_class = E->NewGlobalRef(env, E->FindClass(env, BASE_PACKAGE"/RegistHost"));
 	regist->java_regist_host_ctor = E->GetMethodID(env, regist->java_regist_host_class, "<init>", "("
+			  "L"BASE_PACKAGE"/Target;" // target: Target
 			  "Ljava/lang/String;" // apSsid: String
 			  "Ljava/lang/String;" // apBssid: String
 			  "Ljava/lang/String;" // apKey: String
 			  "Ljava/lang/String;" // apName: String
-			  "[B" // ps4Mac: ByteArray
-			  "Ljava/lang/String;" // ps4Nickname: String
+			  "[B" // serverMac: ByteArray
+			  "Ljava/lang/String;" // serverNickname: String
 			  "[B" // rpRegistKey: ByteArray
 			  "I" // rpKeyType: UInt
 			  "[B" // rpKey: ByteArray
 			  ")V");
 
 	jclass regist_info_class = E->GetObjectClass(env, regist_info_obj);
+
+	jobject target_obj = E->GetObjectField(env, regist_info_obj, E->GetFieldID(env, regist_info_class, "target", "L"BASE_PACKAGE"/Target;"));
+	jclass target_class = E->GetObjectClass(env, target_obj);
+	jint target_value = E->GetIntField(env, target_obj, E->GetFieldID(env, target_class, "value", "I"));
+
 	jstring host_string = E->GetObjectField(env, regist_info_obj, E->GetFieldID(env, regist_info_class, "host", "Ljava/lang/String;"));
 	jboolean broadcast = E->GetBooleanField(env, regist_info_obj, E->GetFieldID(env, regist_info_class, "broadcast", "Z"));
 	jstring psn_online_id_string = E->GetObjectField(env, regist_info_obj, E->GetFieldID(env, regist_info_class, "psnOnlineId", "Ljava/lang/String;"));
@@ -709,6 +792,7 @@ JNIEXPORT void JNICALL JNI_FCN(registStart)(JNIEnv *env, jobject obj, jobject re
 	jint pin = E->GetIntField(env, regist_info_obj, E->GetFieldID(env, regist_info_class, "pin", "I"));
 
 	ChiakiRegistInfo regist_info = { 0 };
+	regist_info.target = (ChiakiTarget)target_value;
 	regist_info.host = E->GetStringUTFChars(env, host_string, NULL);
 	regist_info.broadcast = broadcast;
 	if(psn_online_id_string)

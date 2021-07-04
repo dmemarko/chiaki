@@ -1,19 +1,4 @@
-/*
- * This file is part of Chiaki.
- *
- * Chiaki is free software: you can redistribute it and/or modify
- * it under the terms of the GNU General Public License as published by
- * the Free Software Foundation, either version 3 of the License, or
- * (at your option) any later version.
- *
- * Chiaki is distributed in the hope that it will be useful,
- * but WITHOUT ANY WARRANTY; without even the implied warranty of
- * MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
- * GNU General Public License for more details.
- *
- * You should have received a copy of the GNU General Public License
- * along with Chiaki.  If not, see <https://www.gnu.org/licenses/>.
- */
+// SPDX-License-Identifier: LicenseRef-AGPL-3.0-only-OpenSSL
 
 package com.metallic.chiaki.stream
 
@@ -21,12 +6,8 @@ import android.animation.Animator
 import android.animation.AnimatorListenerAdapter
 import android.app.AlertDialog
 import android.graphics.Matrix
-import android.os.Bundle
-import android.os.Handler
-import android.view.KeyEvent
-import android.view.MotionEvent
-import android.view.TextureView
-import android.view.View
+import android.os.*
+import android.view.*
 import android.widget.EditText
 import androidx.appcompat.app.AppCompatActivity
 import androidx.core.view.isGone
@@ -35,15 +16,18 @@ import androidx.fragment.app.Fragment
 import androidx.lifecycle.*
 import com.google.android.material.dialog.MaterialAlertDialogBuilder
 import com.metallic.chiaki.R
-import com.metallic.chiaki.common.LogManager
 import com.metallic.chiaki.common.Preferences
 import com.metallic.chiaki.common.ext.viewModelFactory
+import com.metallic.chiaki.databinding.ActivityStreamBinding
 import com.metallic.chiaki.lib.ConnectInfo
 import com.metallic.chiaki.lib.ConnectVideoProfile
 import com.metallic.chiaki.session.*
-import com.metallic.chiaki.touchcontrols.TouchpadOnlyFragment
+import com.metallic.chiaki.touchcontrols.DefaultTouchControlsFragment
 import com.metallic.chiaki.touchcontrols.TouchControlsFragment
-import kotlinx.android.synthetic.main.activity_stream.*
+import com.metallic.chiaki.touchcontrols.TouchpadOnlyFragment
+import io.reactivex.disposables.CompositeDisposable
+import io.reactivex.rxkotlin.addTo
+import kotlin.math.min
 
 private sealed class DialogContents
 private object StreamQuitDialog: DialogContents()
@@ -59,6 +43,8 @@ class StreamActivity : AppCompatActivity(), View.OnSystemUiVisibilityChangeListe
 	}
 
 	private lateinit var viewModel: StreamViewModel
+	private lateinit var binding: ActivityStreamBinding
+
 	private val uiVisibilityHandler = Handler()
 
 	override fun onCreate(savedInstanceState: Bundle?)
@@ -73,64 +59,76 @@ class StreamActivity : AppCompatActivity(), View.OnSystemUiVisibilityChangeListe
 		}
 
 		viewModel = ViewModelProvider(this, viewModelFactory {
-			StreamViewModel(Preferences(this), LogManager(this), connectInfo)
+			StreamViewModel(application, connectInfo)
 		})[StreamViewModel::class.java]
 
-		setContentView(R.layout.activity_stream)
+		viewModel.input.observe(this)
+
+		binding = ActivityStreamBinding.inflate(layoutInflater)
+		setContentView(binding.root)
 		window.decorView.setOnSystemUiVisibilityChangeListener(this)
 
 		viewModel.onScreenControlsEnabled.observe(this, Observer {
-			if(onScreenControlsSwitch.isChecked != it)
-				onScreenControlsSwitch.isChecked = it
-			if(onScreenControlsSwitch.isChecked)
-				touchpadOnlySwitch.isChecked = false
+			if(binding.onScreenControlsSwitch.isChecked != it)
+				binding.onScreenControlsSwitch.isChecked = it
+			if(binding.onScreenControlsSwitch.isChecked)
+				binding.touchpadOnlySwitch.isChecked = false
 		})
-		onScreenControlsSwitch.setOnCheckedChangeListener { _, isChecked ->
+		binding.onScreenControlsSwitch.setOnCheckedChangeListener { _, isChecked ->
 			viewModel.setOnScreenControlsEnabled(isChecked)
 			showOverlay()
 		}
 
 		viewModel.touchpadOnlyEnabled.observe(this, Observer {
-			if(touchpadOnlySwitch.isChecked != it)
-				touchpadOnlySwitch.isChecked = it
-			if(touchpadOnlySwitch.isChecked)
-				onScreenControlsSwitch.isChecked = false
+			if(binding.touchpadOnlySwitch.isChecked != it)
+				binding.touchpadOnlySwitch.isChecked = it
+			if(binding.touchpadOnlySwitch.isChecked)
+				binding.onScreenControlsSwitch.isChecked = false
 		})
-		touchpadOnlySwitch.setOnCheckedChangeListener { _, isChecked ->
+		binding.touchpadOnlySwitch.setOnCheckedChangeListener { _, isChecked ->
 			viewModel.setTouchpadOnlyEnabled(isChecked)
 			showOverlay()
 		}
 
-		displayModeToggle.addOnButtonCheckedListener { _, checkedId, _ ->
-			// following 'if' is a workaround until selectionRequired for MaterialButtonToggleGroup
-			// comes out of alpha.
-			// See https://stackoverflow.com/questions/56164004/required-single-selection-on-materialbuttontogglegroup
-			if (displayModeToggle.checkedButtonId == -1)
-				displayModeToggle.check(checkedId)
-
-			adjustTextureViewAspect()
+		binding.displayModeToggle.addOnButtonCheckedListener { _, _, _ ->
+			adjustStreamViewAspect()
 			showOverlay()
 		}
 
-		viewModel.session.attachToTextureView(textureView)
+		//viewModel.session.attachToTextureView(textureView)
+		viewModel.session.attachToSurfaceView(binding.surfaceView)
 		viewModel.session.state.observe(this, Observer { this.stateChanged(it) })
-		textureView.addOnLayoutChangeListener { _, _, _, _, _, _, _, _, _ ->
-			adjustTextureViewAspect()
+		adjustStreamViewAspect()
+
+		if(Preferences(this).rumbleEnabled)
+		{
+			val vibrator = getSystemService(VIBRATOR_SERVICE) as Vibrator
+			viewModel.session.rumbleState.observe(this, Observer {
+				val amplitude = min(255, (it.left.toInt() + it.right.toInt()) / 2)
+				vibrator.cancel()
+				if(amplitude == 0)
+					return@Observer
+				if(Build.VERSION.SDK_INT >= Build.VERSION_CODES.O)
+					vibrator.vibrate(VibrationEffect.createOneShot(1000, amplitude))
+				else
+					vibrator.vibrate(1000)
+			})
 		}
 	}
+
+	private val controlsDisposable = CompositeDisposable()
 
 	override fun onAttachFragment(fragment: Fragment)
 	{
 		super.onAttachFragment(fragment)
 		if(fragment is TouchControlsFragment)
 		{
-			fragment.controllerStateCallback = { viewModel.input.touchControllerState = it }
+			fragment.controllerState
+				.subscribe { viewModel.input.touchControllerState = it }
+				.addTo(controlsDisposable)
 			fragment.onScreenControlsEnabled = viewModel.onScreenControlsEnabled
-		}
-		if(fragment is TouchpadOnlyFragment)
-		{
-			fragment.controllerStateCallback = { viewModel.input.touchControllerState = it }
-			fragment.touchpadOnlyEnabled = viewModel.touchpadOnlyEnabled
+			if(fragment is TouchpadOnlyFragment)
+				fragment.touchpadOnlyEnabled = viewModel.touchpadOnlyEnabled
 		}
 	}
 
@@ -145,6 +143,12 @@ class StreamActivity : AppCompatActivity(), View.OnSystemUiVisibilityChangeListe
 	{
 		super.onPause()
 		viewModel.session.pause()
+	}
+
+	override fun onDestroy()
+	{
+		super.onDestroy()
+		controlsDisposable.dispose()
 	}
 
 	private fun reconnect()
@@ -165,14 +169,14 @@ class StreamActivity : AppCompatActivity(), View.OnSystemUiVisibilityChangeListe
 
 	private fun showOverlay()
 	{
-		overlay.isVisible = true
-		overlay.animate()
+		binding.overlay.isVisible = true
+		binding.overlay.animate()
 			.alpha(1.0f)
 			.setListener(object: AnimatorListenerAdapter()
 			{
 				override fun onAnimationEnd(animation: Animator?)
 				{
-					overlay.alpha = 1.0f
+					binding.overlay.alpha = 1.0f
 				}
 			})
 		uiVisibilityHandler.removeCallbacks(hideSystemUIRunnable)
@@ -181,13 +185,13 @@ class StreamActivity : AppCompatActivity(), View.OnSystemUiVisibilityChangeListe
 
 	private fun hideOverlay()
 	{
-		overlay.animate()
+		binding.overlay.animate()
 			.alpha(0.0f)
 			.setListener(object: AnimatorListenerAdapter()
 			{
 				override fun onAnimationEnd(animation: Animator?)
 				{
-					overlay.isGone = true
+					binding.overlay.isGone = true
 				}
 			})
 	}
@@ -220,7 +224,7 @@ class StreamActivity : AppCompatActivity(), View.OnSystemUiVisibilityChangeListe
 
 	private fun stateChanged(state: StreamState)
 	{
-		progressBar.visibility = if(state == StreamStateConnecting) View.VISIBLE else View.GONE
+		binding.progressBar.visibility = if(state == StreamStateConnecting) View.VISIBLE else View.GONE
 
 		when(state)
 		{
@@ -305,74 +309,84 @@ class StreamActivity : AppCompatActivity(), View.OnSystemUiVisibilityChangeListe
 		}
 	}
 
-	private fun adjustTextureViewAspect()
+	private fun adjustTextureViewAspect(textureView: TextureView)
 	{
-		val displayInfo = DisplayInfo(viewModel.session.connectInfo.videoProfile, textureView)
-		val resolution = displayInfo.computeResolutionFor(displayModeToggle.checkedButtonId)
-
+		val trans = TextureViewTransform(viewModel.session.connectInfo.videoProfile, textureView)
+		val resolution = trans.resolutionFor(TransformMode.fromButton(binding.displayModeToggle.checkedButtonId))
 		Matrix().also {
 			textureView.getTransform(it)
-			it.setScale(resolution.width / displayInfo.viewWidth, resolution.height / displayInfo.viewHeight)
-			it.postTranslate((displayInfo.viewWidth - resolution.width) * 0.5f, (displayInfo.viewHeight - resolution.height) * 0.5f)
+			it.setScale(resolution.width / trans.viewWidth, resolution.height / trans.viewHeight)
+			it.postTranslate((trans.viewWidth - resolution.width) * 0.5f, (trans.viewHeight - resolution.height) * 0.5f)
 			textureView.setTransform(it)
 		}
 	}
 
+	private fun adjustSurfaceViewAspect()
+	{
+		val videoProfile = viewModel.session.connectInfo.videoProfile
+		binding.aspectRatioLayout.aspectRatio = videoProfile.width.toFloat() / videoProfile.height.toFloat()
+		binding.aspectRatioLayout.mode = TransformMode.fromButton(binding.displayModeToggle.checkedButtonId)
+	}
+
+	private fun adjustStreamViewAspect() = adjustSurfaceViewAspect()
+
 	override fun dispatchKeyEvent(event: KeyEvent) = viewModel.input.dispatchKeyEvent(event) || super.dispatchKeyEvent(event)
 	override fun onGenericMotionEvent(event: MotionEvent) = viewModel.input.onGenericMotionEvent(event) || super.onGenericMotionEvent(event)
-
 }
 
-
-class DisplayInfo constructor(val videoProfile: ConnectVideoProfile, val textureView: TextureView)
+enum class TransformMode
 {
-	val contentWidth : Float get() = videoProfile.width.toFloat()
-	val contentHeight : Float get() = videoProfile.height.toFloat()
+	FIT,
+	STRETCH,
+	ZOOM;
+
+	companion object
+	{
+		fun fromButton(displayModeButtonId: Int)
+			= when (displayModeButtonId)
+			{
+				R.id.display_mode_stretch_button -> STRETCH
+				R.id.display_mode_zoom_button -> ZOOM
+				else -> FIT
+			}
+	}
+}
+
+class TextureViewTransform(private val videoProfile: ConnectVideoProfile, private val textureView: TextureView)
+{
+	private val contentWidth : Float get() = videoProfile.width.toFloat()
+	private val contentHeight : Float get() = videoProfile.height.toFloat()
 	val viewWidth : Float get() = textureView.width.toFloat()
 	val viewHeight : Float get() = textureView.height.toFloat()
-	val contentAspect : Float get() =  contentHeight / contentWidth
+	private val contentAspect : Float get() =  contentHeight / contentWidth
 
-	fun computeResolutionFor(displayModeButtonId: Int) : Resolution
-	{
-		when (displayModeButtonId)
+	fun resolutionFor(mode: TransformMode): Resolution
+		= when(mode)
 		{
-			R.id.display_mode_stretch_button -> return computeStrechedResolution()
-			R.id.display_mode_zoom_button -> return computeZoomedResolution()
-			else -> return computeNormalResolution()
+			TransformMode.STRETCH -> strechedResolution
+			TransformMode.ZOOM -> zoomedResolution
+			TransformMode.FIT -> normalResolution
 		}
-	}
 
-	private fun computeStrechedResolution(): Resolution
-	{
-		return Resolution(viewWidth, viewHeight)
-	}
+	private val strechedResolution get() = Resolution(viewWidth, viewHeight)
 
-	private fun computeZoomedResolution(): Resolution
-	{
-		if (viewHeight > viewWidth * contentAspect)
+	private val zoomedResolution get() =
+		if(viewHeight > viewWidth * contentAspect)
 		{
 			val zoomFactor = viewHeight / contentHeight
-			return Resolution(contentWidth * zoomFactor, viewHeight)
+			Resolution(contentWidth * zoomFactor, viewHeight)
 		}
 		else
 		{
 			val zoomFactor = viewWidth / contentWidth
-			return Resolution(viewWidth, contentHeight * zoomFactor)
+			Resolution(viewWidth, contentHeight * zoomFactor)
 		}
-	}
 
-	private fun computeNormalResolution(): Resolution
-	{
-		if (viewHeight > viewWidth * contentAspect)
-		{
-			return Resolution(viewWidth, viewWidth * contentAspect)
-		}
+	private val normalResolution get() =
+		if(viewHeight > viewWidth * contentAspect)
+			Resolution(viewWidth, viewWidth * contentAspect)
 		else
-		{
-			return Resolution(viewHeight / contentAspect, viewHeight)
-		}
-	}
-
+			Resolution(viewHeight / contentAspect, viewHeight)
 }
 
 

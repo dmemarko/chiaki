@@ -1,19 +1,4 @@
-/*
- * This file is part of Chiaki.
- *
- * Chiaki is free software: you can redistribute it and/or modify
- * it under the terms of the GNU General Public License as published by
- * the Free Software Foundation, either version 3 of the License, or
- * (at your option) any later version.
- *
- * Chiaki is distributed in the hope that it will be useful,
- * but WITHOUT ANY WARRANTY; without even the implied warranty of
- * MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
- * GNU General Public License for more details.
- *
- * You should have received a copy of the GNU General Public License
- * along with Chiaki.  If not, see <https://www.gnu.org/licenses/>.
- */
+// SPDX-License-Identifier: LicenseRef-AGPL-3.0-only-OpenSSL
 
 package com.metallic.chiaki.common
 
@@ -25,6 +10,7 @@ sealed class DisplayHost
 	abstract val host: String
 	abstract val name: String?
 	abstract val id: String?
+	abstract val isPS5: Boolean
 
 	val isRegistered get() = registeredHost != null
 }
@@ -35,8 +21,9 @@ class DiscoveredDisplayHost(
 ): DisplayHost()
 {
 	override val host get() = discoveredHost.hostAddr ?: ""
-	override val name get() = discoveredHost.hostName ?: registeredHost?.ps4Nickname
-	override val id get() = discoveredHost.hostId ?: registeredHost?.ps4Mac?.toString()
+	override val name get() = discoveredHost.hostName ?: registeredHost?.serverNickname
+	override val id get() = discoveredHost.hostId ?: registeredHost?.serverMac?.toString()
+	override val isPS5 get() = discoveredHost.isPS5
 
 	override fun equals(other: Any?): Boolean =
 		if(other !is DiscoveredDisplayHost)
@@ -55,8 +42,9 @@ class ManualDisplayHost(
 ): DisplayHost()
 {
 	override val host get() = manualHost.host
-	override val name get() = registeredHost?.ps4Nickname
-	override val id get() = registeredHost?.ps4Mac?.toString()
+	override val name get() = registeredHost?.serverNickname
+	override val id get() = registeredHost?.serverMac?.toString()
+	override val isPS5: Boolean get() = registeredHost?.target?.isPS5 ?: false
 
 	override fun equals(other: Any?): Boolean =
 		if(other !is ManualDisplayHost)

@@ -24,6 +24,8 @@ if(ANDROID_ABI)
 else()
 	if(UNIX AND NOT APPLE AND CMAKE_SIZEOF_VOID_P STREQUAL "8")
 		set(OPENSSL_OS_COMPILER "linux-x86_64")
+	elseif(APPLE)
+		set(OPENSSL_OS_COMPILER "darwin64-x86_64-cc")
 	endif()
 endif()
 

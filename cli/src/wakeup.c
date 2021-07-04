@@ -1,19 +1,4 @@
-/*
- * This file is part of Chiaki.
- *
- * Chiaki is free software: you can redistribute it and/or modify
- * it under the terms of the GNU General Public License as published by
- * the Free Software Foundation, either version 3 of the License, or
- * (at your option) any later version.
- *
- * Chiaki is distributed in the hope that it will be useful,
- * but WITHOUT ANY WARRANTY; without even the implied warranty of
- * MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
- * GNU General Public License for more details.
- *
- * You should have received a copy of the GNU General Public License
- * along with Chiaki.  If not, see <https://www.gnu.org/licenses/>.
- */
+// SPDX-License-Identifier: LicenseRef-AGPL-3.0-only-OpenSSL
 
 #include <chiaki-cli.h>
 
@@ -26,10 +11,14 @@ static char doc[] = "Send a PS4 wakeup packet.";
 
 #define ARG_KEY_HOST 'h'
 #define ARG_KEY_REGISTKEY 'r'
+#define ARG_KEY_PS4 '4'
+#define ARG_KEY_PS5 '5'
 
 static struct argp_option options[] = {
 	{ "host", ARG_KEY_HOST, "Host", 0, "Host to send wakeup packet to", 0 },
-	{ "registkey", ARG_KEY_REGISTKEY, "RegistKey", 0, "PS4 registration key", 0 },
+	{ "registkey", ARG_KEY_REGISTKEY, "RegistKey", 0, "Remote Play registration key (plaintext)", 0 },
+	{ "ps4", ARG_KEY_PS4, NULL, 0, "PlayStation 4", 0 },
+	{ "ps5", ARG_KEY_PS5, NULL, 0, "PlayStation 5 (default)", 0 },
 	{ 0 }
 };
 
@@ -37,6 +26,7 @@ typedef struct arguments
 {
 	const char *host;
 	const char *registkey;
+	bool ps5;
 } Arguments;
 
 static int parse_opt(int key, char *arg, struct argp_state *state)
@@ -54,6 +44,12 @@ static int parse_opt(int key, char *arg, struct argp_state *state)
 		case ARGP_KEY_ARG:
 			argp_usage(state);
 			break;
+		case ARG_KEY_PS4:
+			arguments->ps5 = false;
+			break;
+		case ARG_KEY_PS5:
+			arguments->ps5 = true;
+			break;
 		default:
 			return ARGP_ERR_UNKNOWN;
 	}
@@ -66,6 +62,7 @@ static struct argp argp = { options, parse_opt, 0, doc, 0, 0, 0 };
 CHIAKI_EXPORT int chiaki_cli_cmd_wakeup(ChiakiLog *log, int argc, char *argv[])
 {
 	Arguments arguments = { 0 };
+	arguments.ps5 = true;
 	error_t argp_r = argp_parse(&argp, argc, argv, ARGP_IN_ORDER, NULL, &arguments);
 	if(argp_r != 0)
 		return 1;
@@ -88,5 +85,5 @@ CHIAKI_EXPORT int chiaki_cli_cmd_wakeup(ChiakiLog *log, int argc, char *argv[])
 
 	uint64_t credential = (uint64_t)strtoull(arguments.registkey, NULL, 16);
 
-	return chiaki_discovery_wakeup(log, NULL, arguments.host, credential);
+	return chiaki_discovery_wakeup(log, NULL, arguments.host, credential, arguments.ps5);
 }

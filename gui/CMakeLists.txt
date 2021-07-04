@@ -2,7 +2,7 @@
 set(CMAKE_INCLUDE_CURRENT_DIR ON)
 set(CMAKE_AUTOMOC ON)
 set(CMAKE_AUTORCC ON)
-find_package(Qt5 REQUIRED COMPONENTS Core Widgets Gui Multimedia OpenGL Svg)
+find_package(Qt5 REQUIRED COMPONENTS Core Widgets Gui Concurrent Multimedia OpenGL Svg)
 if(APPLE)
 	find_package(Qt5 REQUIRED COMPONENTS MacExtras)
 endif()
@@ -13,8 +13,6 @@ endif()
 if(WIN32)
 	add_definitions(-DWIN32_LEAN_AND_MEAN)
 endif()
-
-find_package(FFMPEG REQUIRED COMPONENTS avcodec avutil)
 
 set(RESOURCE_FILES "")
 
@@ -28,8 +26,6 @@ add_executable(chiaki WIN32
 		src/main.cpp
 		include/streamwindow.h
 		src/streamwindow.cpp
-		include/videodecoder.h
-		src/videodecoder.cpp
 		include/mainwindow.h
 		src/mainwindow.cpp
 		include/dynamicgridwidget.h
@@ -75,8 +71,7 @@ if(CHIAKI_ENABLE_CLI)
 	target_link_libraries(chiaki chiaki-cli-lib)
 endif()
 
-target_link_libraries(chiaki FFMPEG::avcodec FFMPEG::avutil)
-target_link_libraries(chiaki Qt5::Core Qt5::Widgets Qt5::Gui Qt5::Multimedia Qt5::OpenGL Qt5::Svg)
+target_link_libraries(chiaki Qt5::Core Qt5::Widgets Qt5::Gui Qt5::Concurrent Qt5::Multimedia Qt5::OpenGL Qt5::Svg)
 if(APPLE)
 	target_link_libraries(chiaki Qt5::MacExtras "-framework Cocoa")
 	target_compile_definitions(chiaki PRIVATE CHIAKI_GUI_ENABLE_QT_MACEXTRAS)
@@ -89,13 +84,16 @@ if(CHIAKI_ENABLE_SETSU)
 	target_link_libraries(chiaki setsu)
 	target_compile_definitions(chiaki PRIVATE CHIAKI_GUI_ENABLE_SETSU)
 endif()
+if(NOT CHIAKI_ENABLE_FFMPEG_DECODER)
+	message(FATAL_ERROR "Chiaki GUI requires CHIAKI_ENABLE_FFMPEG_DECODER=ON")
+endif()
 
 set_target_properties(chiaki PROPERTIES
 		MACOSX_BUNDLE TRUE
 		MACOSX_BUNDLE_INFO_PLIST "${CMAKE_CURRENT_SOURCE_DIR}/MacOSXBundleInfo.plist.in"
 		MACOSX_BUNDLE_BUNDLE_NAME Chiaki
 		MACOSX_BUNDLE_BUNDLE_VERSION ${CHIAKI_VERSION}
-		MACOSX_BUNDLE_COPYRIGHT "thestr4ng3r (GPLv3)"
+		MACOSX_BUNDLE_COPYRIGHT "thestr4ng3r (AGPLv3)"
 		MACOSX_BUNDLE_GUI_IDENTIFIER "org.chiaki.chiaki"
 		MACOSX_BUNDLE_ICON_FILE chiaki.icns
 		RESOURCE "${RESOURCE_FILES}")
@@ -105,3 +103,4 @@ install(TARGETS chiaki
 		BUNDLE DESTINATION bin)
 install(FILES chiaki.desktop DESTINATION share/applications)
 install(FILES chiaki.png DESTINATION share/icons/hicolor/512x512/apps)
+install(FILES re.chiaki.Chiaki.appdata.xml DESTINATION share/metainfo)

@@ -1,19 +1,4 @@
-/*
- * This file is part of Chiaki.
- *
- * Chiaki is free software: you can redistribute it and/or modify
- * it under the terms of the GNU General Public License as published by
- * the Free Software Foundation, either version 3 of the License, or
- * (at your option) any later version.
- *
- * Chiaki is distributed in the hope that it will be useful,
- * but WITHOUT ANY WARRANTY; without even the implied warranty of
- * MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
- * GNU General Public License for more details.
- *
- * You should have received a copy of the GNU General Public License
- * along with Chiaki.  If not, see <https://www.gnu.org/licenses/>.
- */
+// SPDX-License-Identifier: LicenseRef-AGPL-3.0-only-OpenSSL
 
 #ifndef CHIAKI_SETTINGS_H
 #define CHIAKI_SETTINGS_H
@@ -21,9 +6,9 @@
 #include <chiaki/session.h>
 
 #include "host.h"
-#include "videodecoder.h"
 
 #include <QSettings>
+#include <QAudioDeviceInfo>
 
 enum class ControllerButtonExt
 {
@@ -36,6 +21,19 @@ enum class ControllerButtonExt
 	ANALOG_STICK_RIGHT_X_DOWN = (1 << 23),
 	ANALOG_STICK_RIGHT_Y_UP = (1 << 24),
 	ANALOG_STICK_RIGHT_Y_DOWN = (1 << 25),
+};
+
+enum class DisconnectAction
+{
+	AlwaysNothing,
+	AlwaysSleep,
+	Ask
+};
+
+enum class Decoder
+{
+	Ffmpeg,
+	Pi
 };
 
 class Settings : public QObject
@@ -77,8 +75,14 @@ class Settings : public QObject
 		unsigned int GetBitrate() const;
 		void SetBitrate(unsigned int bitrate);
 
-		HardwareDecodeEngine GetHardwareDecodeEngine() const;
-		void SetHardwareDecodeEngine(HardwareDecodeEngine enabled);
+		ChiakiCodec GetCodec() const;
+		void SetCodec(ChiakiCodec codec);
+
+		Decoder GetDecoder() const;
+		void SetDecoder(Decoder decoder);
+
+		QString GetHardwareDecoder() const;
+		void SetHardwareDecoder(const QString &hw_decoder);
 
 		unsigned int GetAudioBufferSizeDefault() const;
 
@@ -92,8 +96,14 @@ class Settings : public QObject
 		 */
 		unsigned int GetAudioBufferSize() const;
 		void SetAudioBufferSize(unsigned int size);
+		
+		QString GetAudioOutDevice() const;
+		void SetAudioOutDevice(QString device_name);
 
 		ChiakiConnectVideoProfile GetVideoProfile();
+
+		DisconnectAction GetDisconnectAction();
+		void SetDisconnectAction(DisconnectAction action);
 
 		QList<RegisteredHost> GetRegisteredHosts() const			{ return registered_hosts.values(); }
 		void AddRegisteredHost(const RegisteredHost &host);

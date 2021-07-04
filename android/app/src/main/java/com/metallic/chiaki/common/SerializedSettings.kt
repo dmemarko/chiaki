@@ -1,19 +1,4 @@
-/*
- * This file is part of Chiaki.
- *
- * Chiaki is free software: you can redistribute it and/or modify
- * it under the terms of the GNU General Public License as published by
- * the Free Software Foundation, either version 3 of the License, or
- * (at your option) any later version.
- *
- * Chiaki is distributed in the hope that it will be useful,
- * but WITHOUT ANY WARRANTY; without even the implied warranty of
- * MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
- * GNU General Public License for more details.
- *
- * You should have received a copy of the GNU General Public License
- * along with Chiaki.  If not, see <https://www.gnu.org/licenses/>.
- */
+// SPDX-License-Identifier: LicenseRef-AGPL-3.0-only-OpenSSL
 
 package com.metallic.chiaki.common
 
@@ -27,6 +12,7 @@ import androidx.core.content.FileProvider
 import androidx.room.*
 import com.google.android.material.dialog.MaterialAlertDialogBuilder
 import com.metallic.chiaki.R
+import com.metallic.chiaki.lib.Target
 import com.squareup.moshi.*
 import io.reactivex.Completable
 import io.reactivex.Flowable
@@ -44,23 +30,25 @@ import java.io.IOException
 
 @JsonClass(generateAdapter = true)
 class SerializedRegisteredHost(
+	@Json(name = "target") val target: Target,
 	@Json(name = "ap_ssid") val apSsid: String?,
 	@Json(name = "ap_bssid") val apBssid: String?,
 	@Json(name = "ap_key") val apKey: String?,
 	@Json(name = "ap_name") val apName: String?,
-	@Json(name = "ps4_mac") val ps4Mac: MacAddress,
-	@Json(name = "ps4_nickname") val ps4Nickname: String?,
+	@Json(name = "server_mac") val serverMac: MacAddress,
+	@Json(name = "server_nickname") val serverNickname: String?,
 	@Json(name = "rp_regist_key") val rpRegistKey: ByteArray,
 	@Json(name = "rp_key_type") val rpKeyType: Int,
 	@Json(name = "rp_key") val rpKey: ByteArray
 ){
 	constructor(registeredHost: RegisteredHost) : this(
+		registeredHost.target,
 		registeredHost.apSsid,
 		registeredHost.apBssid,
 		registeredHost.apKey,
 		registeredHost.apName,
-		registeredHost.ps4Mac,
-		registeredHost.ps4Nickname,
+		registeredHost.serverMac,
+		registeredHost.serverNickname,
 		registeredHost.rpRegistKey,
 		registeredHost.rpKeyType,
 		registeredHost.rpKey
@@ -70,7 +58,7 @@ class SerializedRegisteredHost(
 @JsonClass(generateAdapter = true)
 class SerializedManualHost(
 	@Json(name = "host") val host: String,
-	@Json(name = "ps4_mac") val ps4Mac: MacAddress?
+	@Json(name = "server_mac") val serverMac: MacAddress?
 )
 
 @JsonClass(generateAdapter = true)
@@ -92,7 +80,7 @@ data class SerializedSettings(
 						manualHost.host,
 						manualHost.registeredHost?.let { registeredHostId ->
 							registeredHosts.firstOrNull { it.id == registeredHostId }
-						}?.ps4Mac
+						}?.serverMac
 					)
 				})
 		}
@@ -118,7 +106,7 @@ private fun Moshi.serializedSettingsAdapter() =
 private const val KEY_FORMAT = "format"
 private const val FORMAT = "chiaki-settings"
 private const val KEY_VERSION = "version"
-private const val VERSION = 1
+private const val VERSION = 2
 private const val KEY_SETTINGS = "settings"
 
 fun exportAllSettings(db: AppDatabase) = SerializedSettings.fromDatabase(db)
@@ -212,13 +200,13 @@ fun importSettingsFromUri(activity: Activity, uri: Uri, disposable: CompositeDis
 					if(it.isEmpty())
 						"-"
 					else
-						it.joinToString(separator = "") { host -> "\n - ${host.ps4Nickname ?: "?"} / ${host.ps4Mac}" }
+						it.joinToString(separator = "") { host -> "\n - ${host.serverNickname ?: "?"} / ${host.serverMac}" }
 				},
 				settings.manualHosts.let {
 					if(it.isEmpty())
 						"-"
 					else
-						it.joinToString(separator = "") { host -> "\n - ${host.host} / ${host.ps4Mac ?: "unregistered"}" }
+						it.joinToString(separator = "") { host -> "\n - ${host.host} / ${host.serverMac ?: "unregistered"}" }
 				}
 			))
 			.setTitle(R.string.alert_title_import)
@@ -257,7 +245,7 @@ abstract class ImportDao
 
 	class IdWithMac(val id: Long, val mac: MacAddress)
 
-	@Query("SELECT id, ps4_mac AS mac FROM registered_host WHERE ps4_mac IN (:macs)")
+	@Query("SELECT id, server_mac AS mac FROM registered_host WHERE server_mac IN (:macs)")
 	abstract fun registeredHostsByMac(macs: List<MacAddress>): List<IdWithMac>
 
 	@Transaction
@@ -266,19 +254,20 @@ abstract class ImportDao
 		insertRegisteredHosts(
 			settings.registeredHosts.map {
 				RegisteredHost(
+					target = it.target,
 					apSsid = it.apSsid,
 					apBssid = it.apBssid,
 					apKey = it.apKey,
 					apName = it.apName,
-					ps4Mac = it.ps4Mac,
-					ps4Nickname = it.ps4Nickname,
+					serverMac = it.serverMac,
+					serverNickname = it.serverNickname,
 					rpRegistKey = it.rpRegistKey,
 					rpKeyType = it.rpKeyType,
 					rpKey = it.rpKey
 				)
 		})
 
-		val macs = settings.manualHosts.mapNotNull { it.ps4Mac }
+		val macs = settings.manualHosts.mapNotNull { it.serverMac }
 		val idMacs =
 			if(macs.isNotEmpty())
 				registeredHostsByMac(macs)
@@ -289,7 +278,7 @@ abstract class ImportDao
 			settings.manualHosts.map {
 				ManualHost(
 					host = it.host,
-					registeredHost = idMacs.firstOrNull { regHost -> regHost.mac == it.ps4Mac }?.id
+					registeredHost = idMacs.firstOrNull { regHost -> regHost.mac == it.serverMac }?.id
 				)
 		})
 	}

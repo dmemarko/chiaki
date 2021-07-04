@@ -1,19 +1,4 @@
-/*
- * This file is part of Chiaki.
- *
- * Chiaki is free software: you can redistribute it and/or modify
- * it under the terms of the GNU General Public License as published by
- * the Free Software Foundation, either version 3 of the License, or
- * (at your option) any later version.
- *
- * Chiaki is distributed in the hope that it will be useful,
- * but WITHOUT ANY WARRANTY; without even the implied warranty of
- * MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
- * GNU General Public License for more details.
- *
- * You should have received a copy of the GNU General Public License
- * along with Chiaki.  If not, see <https://www.gnu.org/licenses/>.
- */
+// SPDX-License-Identifier: LicenseRef-AGPL-3.0-only-OpenSSL
 
 #define _GNU_SOURCE
 
@@ -38,7 +23,8 @@ static DWORD WINAPI win32_thread_func(LPVOID param)
 #endif
 
 #ifdef __SWITCH__
-int64_t get_thread_limit(){
+int64_t get_thread_limit()
+{
 	uint64_t resource_limit_handle_value = INVALID_HANDLE;
 	svcGetInfo(&resource_limit_handle_value, InfoType_ResourceLimit, INVALID_HANDLE, 0);
 	int64_t thread_cur_value = 0, thread_lim_value = 0;
@@ -60,9 +46,8 @@ CHIAKI_EXPORT ChiakiErrorCode chiaki_thread_create(ChiakiThread *thread, ChiakiT
 		return CHIAKI_ERR_THREAD;
 #else
 #ifdef __SWITCH__
-	if(get_thread_limit() <= 1){
+	if(get_thread_limit() <= 1)
 		return CHIAKI_ERR_THREAD;
-	}
 #endif
 	int r = pthread_create(&thread->thread, NULL, func, arg);
 	if(r != 0)
@@ -105,12 +90,12 @@ CHIAKI_EXPORT ChiakiErrorCode chiaki_thread_set_name(ChiakiThread *thread, const
 	if(r != 0)
 		return CHIAKI_ERR_THREAD;
 #else
-	(void)thread; (void)name;
+	(void)thread;
+	(void)name;
 #endif
 #endif
 	return CHIAKI_ERR_SUCCESS;
 }
-
 
 CHIAKI_EXPORT ChiakiErrorCode chiaki_mutex_init(ChiakiMutex *mutex, bool rec)
 {
@@ -187,9 +172,6 @@ CHIAKI_EXPORT ChiakiErrorCode chiaki_mutex_unlock(ChiakiMutex *mutex)
 	return CHIAKI_ERR_SUCCESS;
 }
 
-
-
-
 CHIAKI_EXPORT ChiakiErrorCode chiaki_cond_init(ChiakiCond *cond)
 {
 #if _WIN32
@@ -228,8 +210,6 @@ CHIAKI_EXPORT ChiakiErrorCode chiaki_cond_fini(ChiakiCond *cond)
 #endif
 	return CHIAKI_ERR_SUCCESS;
 }
-
-
 
 CHIAKI_EXPORT ChiakiErrorCode chiaki_cond_wait(ChiakiCond *cond, ChiakiMutex *mutex)
 {
@@ -338,7 +318,6 @@ CHIAKI_EXPORT ChiakiErrorCode chiaki_cond_timedwait_pred(ChiakiCond *cond, Chiak
 #endif
 	}
 	return CHIAKI_ERR_SUCCESS;
-
 }
 
 CHIAKI_EXPORT ChiakiErrorCode chiaki_cond_signal(ChiakiCond *cond)
@@ -364,9 +343,6 @@ CHIAKI_EXPORT ChiakiErrorCode chiaki_cond_broadcast(ChiakiCond *cond)
 #endif
 	return CHIAKI_ERR_SUCCESS;
 }
-
-
-
 
 CHIAKI_EXPORT ChiakiErrorCode chiaki_bool_pred_cond_init(ChiakiBoolPredCond *cond)
 {
@@ -398,7 +374,6 @@ CHIAKI_EXPORT ChiakiErrorCode chiaki_bool_pred_cond_fini(ChiakiBoolPredCond *con
 
 	return CHIAKI_ERR_SUCCESS;
 }
-
 
 CHIAKI_EXPORT ChiakiErrorCode chiaki_bool_pred_cond_lock(ChiakiBoolPredCond *cond)
 {

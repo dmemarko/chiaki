@@ -1,19 +1,4 @@
-/*
- * This file is part of Chiaki.
- *
- * Chiaki is free software: you can redistribute it and/or modify
- * it under the terms of the GNU General Public License as published by
- * the Free Software Foundation, either version 3 of the License, or
- * (at your option) any later version.
- *
- * Chiaki is distributed in the hope that it will be useful,
- * but WITHOUT ANY WARRANTY; without even the implied warranty of
- * MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
- * GNU General Public License for more details.
- *
- * You should have received a copy of the GNU General Public License
- * along with Chiaki.  If not, see <https://www.gnu.org/licenses/>.
- */
+// SPDX-License-Identifier: LicenseRef-AGPL-3.0-only-OpenSSL
 
 #include <chiaki/session.h>
 #include <chiaki/ecdh.h>
@@ -94,7 +79,6 @@ CHIAKI_EXPORT void chiaki_ecdh_fini(ChiakiECDH *ecdh)
 #endif
 }
 
-
 CHIAKI_EXPORT ChiakiErrorCode chiaki_ecdh_set_local_key(ChiakiECDH *ecdh, const uint8_t *private_key, size_t private_key_size, const uint8_t *public_key, size_t public_key_size)
 {
 #ifdef CHIAKI_LIB_ENABLE_MBEDTLS
@@ -104,24 +88,19 @@ CHIAKI_EXPORT ChiakiErrorCode chiaki_ecdh_set_local_key(ChiakiECDH *ecdh, const 
 
 	// public
 	int r = 0;
-	r = mbedtls_ecp_point_read_binary(&ecdh->ctx.grp, &ecdh->ctx.Q,
-		public_key, public_key_size);
-	if(r != 0 ){
+	r = mbedtls_ecp_point_read_binary(&ecdh->ctx.grp, &ecdh->ctx.Q, public_key, public_key_size);
+	if(r != 0)
 		return CHIAKI_ERR_UNKNOWN;
-	}
 
 	// secret
 	r = mbedtls_mpi_read_binary(&ecdh->ctx.d, private_key, private_key_size);
-	if(r != 0 ){
+	if(r != 0)
 		return CHIAKI_ERR_UNKNOWN;
-	}
 
 	// regen key
-	r = mbedtls_ecdh_gen_public(&ecdh->ctx.grp, &ecdh->ctx.d,
-		&ecdh->ctx.Q, mbedtls_ctr_drbg_random, &ecdh->drbg);
-	if(r != 0 ){
+	r = mbedtls_ecdh_gen_public(&ecdh->ctx.grp, &ecdh->ctx.d, &ecdh->ctx.Q, mbedtls_ctr_drbg_random, &ecdh->drbg);
+	if(r != 0)
 		return CHIAKI_ERR_UNKNOWN;
-	}
 
 	return CHIAKI_ERR_SUCCESS;
 #else

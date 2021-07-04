@@ -1,19 +1,4 @@
-/*
- * This file is part of Chiaki.
- *
- * Chiaki is free software: you can redistribute it and/or modify
- * it under the terms of the GNU General Public License as published by
- * the Free Software Foundation, either version 3 of the License, or
- * (at your option) any later version.
- *
- * Chiaki is distributed in the hope that it will be useful,
- * but WITHOUT ANY WARRANTY; without even the implied warranty of
- * MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
- * GNU General Public License for more details.
- *
- * You should have received a copy of the GNU General Public License
- * along with Chiaki.  If not, see <https://www.gnu.org/licenses/>.
- */
+// SPDX-License-Identifier: LicenseRef-AGPL-3.0-only-OpenSSL
 
 #include <chiaki/launchspec.h>
 #include <chiaki/session.h>
@@ -65,7 +50,8 @@ static const char launchspec_fmt[] =
 			"\"connectedControllers\":[\"xinput\",\"ds3\",\"ds4\"],"
 			"\"yuvCoefficient\":\"bt601\","
 			"\"videoEncoderProfile\":\"hw4.1\","
-			"\"audioEncoderProfile\":\"audio1\""
+			"\"audioEncoderProfile\":\"audio1\"" // 6
+			"%s"
 		"},"
 		"\"userProfile\":{"
 			"\"onlineId\":\"psnId\","
@@ -73,7 +59,9 @@ static const char launchspec_fmt[] =
 			"\"region\":\"US\","
 			"\"languagesUsed\":[\"en\",\"jp\"]"
 		"},"
-		"\"handshakeKey\":\"%s\"" // 6
+		"%s" // 7
+		"%s" // 8
+		"\"handshakeKey\":\"%s\"" // 9
 	"}";
 
 CHIAKI_EXPORT int chiaki_launchspec_format(char *buf, size_t buf_size, ChiakiLaunchSpec *launch_spec)
@@ -83,9 +71,24 @@ CHIAKI_EXPORT int chiaki_launchspec_format(char *buf, size_t buf_size, ChiakiLau
 	if(err != CHIAKI_ERR_SUCCESS)
 		return -1;
 
+	char *extras[3];
+	if(chiaki_target_is_ps5(launch_spec->target)) // TODO: probably also for ps4, but only 12
+	{
+		extras[0] = ",\"adaptiveStreamMode\": \"resize\"";
+		extras[1] = chiaki_codec_is_h265(launch_spec->codec)
+			? "\"videoCodec\":\"hevc\","
+			: "\"videoCodec\":\"avc\",";
+		extras[2] = chiaki_codec_is_hdr(launch_spec->codec)
+			? "\"dynamicRange\":\"HDR\","
+			: "\"dynamicRange\":\"SDR\",";
+	}
+	else
+		extras[0] = extras[1] = extras[2] = "";
+
 	int written = snprintf(buf, buf_size, launchspec_fmt,
 			launch_spec->width, launch_spec->height, launch_spec->max_fps,
-			launch_spec->bw_kbps_sent, launch_spec->mtu, launch_spec->rtt, handshake_key_b64);
+			launch_spec->bw_kbps_sent, launch_spec->mtu, launch_spec->rtt,
+			extras[0], extras[1], extras[2], handshake_key_b64);
 	if(written < 0 || written >= buf_size)
 		return -1;
 	return written;

@@ -1,24 +1,15 @@
-/*
- * This file is part of Chiaki.
- *
- * Chiaki is free software: you can redistribute it and/or modify
- * it under the terms of the GNU General Public License as published by
- * the Free Software Foundation, either version 3 of the License, or
- * (at your option) any later version.
- *
- * Chiaki is distributed in the hope that it will be useful,
- * but WITHOUT ANY WARRANTY; without even the implied warranty of
- * MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
- * GNU General Public License for more details.
- *
- * You should have received a copy of the GNU General Public License
- * along with Chiaki.  If not, see <https://www.gnu.org/licenses/>.
- */
+// SPDX-License-Identifier: LicenseRef-AGPL-3.0-only-OpenSSL
 
 #include <chiaki/discoveryservice.h>
 
 #include <string.h>
 #include <assert.h>
+
+#ifdef _WIN32
+#include <ws2tcpip.h>
+#else
+#include <netinet/in.h>
+#endif
 
 static void *discovery_service_thread_func(void *user);
 static void discovery_service_ping(ChiakiDiscoveryService *service);
@@ -150,9 +141,27 @@ static void discovery_service_ping(ChiakiDiscoveryService *service)
 	CHIAKI_LOGV(service->log, "Discovery Service sending ping");
 	ChiakiDiscoveryPacket packet = { 0 };
 	packet.cmd = CHIAKI_DISCOVERY_CMD_SRCH;
+	packet.protocol_version = CHIAKI_DISCOVERY_PROTOCOL_VERSION_PS4;
+	if(service->options.send_addr->sa_family == AF_INET)
+		((struct sockaddr_in *)service->options.send_addr)->sin_port = htons(CHIAKI_DISCOVERY_PORT_PS4);
+	else if(service->options.send_addr->sa_family == AF_INET6)
+		((struct sockaddr_in6 *)service->options.send_addr)->sin6_port = htons(CHIAKI_DISCOVERY_PORT_PS4);
+	else
+	{
+		CHIAKI_LOGE(service->log, "Discovery Service send_addr has unknown sa_family");
+		return;
+	}
 	err = chiaki_discovery_send(&service->discovery, &packet, service->options.send_addr, service->options.send_addr_size);
 	if(err != CHIAKI_ERR_SUCCESS)
-		CHIAKI_LOGE(service->log, "Discovery Service failed to send ping");
+		CHIAKI_LOGE(service->log, "Discovery Service failed to send ping for PS4");
+	packet.protocol_version = CHIAKI_DISCOVERY_PROTOCOL_VERSION_PS5;
+	if(service->options.send_addr->sa_family == AF_INET)
+		((struct sockaddr_in *)service->options.send_addr)->sin_port = htons(CHIAKI_DISCOVERY_PORT_PS5);
+	else // if(service->options.send_addr->sa_family == AF_INET6)
+		((struct sockaddr_in6 *)service->options.send_addr)->sin6_port = htons(CHIAKI_DISCOVERY_PORT_PS5);
+	err = chiaki_discovery_send(&service->discovery, &packet, service->options.send_addr, service->options.send_addr_size);
+	if(err != CHIAKI_ERR_SUCCESS)
+		CHIAKI_LOGE(service->log, "Discovery Service failed to send ping for PS5");
 }
 
 static void discovery_service_drop_old_hosts(ChiakiDiscoveryService *service)
@@ -229,7 +238,7 @@ static void discovery_service_host_received(ChiakiDiscoveryHost *host, void *use
 		if(service->hosts_count == service->options.hosts_max)
 		{
 			CHIAKI_LOGE(service->log, "Discovery Service received new host, but no space available");
-			goto r2con;
+			goto rzcon;
 		}
 
 		CHIAKI_LOGI(service->log, "Discovery Service detected new host with id %s", host->host_id);
@@ -270,7 +279,7 @@ static void discovery_service_host_received(ChiakiDiscoveryHost *host, void *use
 	if(change)
 		discovery_service_report_state(service);
 
-r2con:
+rzcon:
 	chiaki_mutex_unlock(&service->state_mutex);
 }
 

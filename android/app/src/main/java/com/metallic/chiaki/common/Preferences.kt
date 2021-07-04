@@ -1,19 +1,4 @@
-/*
- * This file is part of Chiaki.
- *
- * Chiaki is free software: you can redistribute it and/or modify
- * it under the terms of the GNU General Public License as published by
- * the Free Software Foundation, either version 3 of the License, or
- * (at your option) any later version.
- *
- * Chiaki is distributed in the hope that it will be useful,
- * but WITHOUT ANY WARRANTY; without even the implied warranty of
- * MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
- * GNU General Public License for more details.
- *
- * You should have received a copy of the GNU General Public License
- * along with Chiaki.  If not, see <https://www.gnu.org/licenses/>.
- */
+// SPDX-License-Identifier: LicenseRef-AGPL-3.0-only-OpenSSL
 
 package com.metallic.chiaki.common
 
@@ -22,6 +7,7 @@ import android.content.SharedPreferences
 import androidx.annotation.StringRes
 import androidx.preference.PreferenceManager
 import com.metallic.chiaki.R
+import com.metallic.chiaki.lib.Codec
 import com.metallic.chiaki.lib.ConnectVideoProfile
 import com.metallic.chiaki.lib.VideoFPSPreset
 import com.metallic.chiaki.lib.VideoResolutionPreset
@@ -46,12 +32,20 @@ class Preferences(context: Context)
 		FPS_60("60", R.string.preferences_fps_title_60, VideoFPSPreset.FPS_60)
 	}
 
+	enum class Codec(val value: String, @StringRes val title: Int, val codec: com.metallic.chiaki.lib.Codec)
+	{
+		CODEC_H264("h264", R.string.preferences_codec_title_h264, com.metallic.chiaki.lib.Codec.CODEC_H264),
+		CODEC_H265("h265", R.string.preferences_codec_title_h265, com.metallic.chiaki.lib.Codec.CODEC_H265)
+	}
+
 	companion object
 	{
 		val resolutionDefault = Resolution.RES_720P
 		val resolutionAll = Resolution.values()
 		val fpsDefault = FPS.FPS_60
 		val fpsAll = FPS.values()
+		val codecDefault = Codec.CODEC_H265
+		val codecAll = Codec.values()
 	}
 
 	private val sharedPreferences = PreferenceManager.getDefaultSharedPreferences(context)
@@ -74,10 +68,25 @@ class Preferences(context: Context)
 		get() = sharedPreferences.getBoolean(onScreenControlsEnabledKey, true)
 		set(value) { sharedPreferences.edit().putBoolean(onScreenControlsEnabledKey, value).apply() }
 
-	val touchpadOnlyEnabledKey get() = resources.getString(R.string.preferences_touchpad_only_key)
+	val touchpadOnlyEnabledKey get() = resources.getString(R.string.preferences_touchpad_only_enabled_key)
 	var touchpadOnlyEnabled
 		get() = sharedPreferences.getBoolean(touchpadOnlyEnabledKey, false)
 		set(value) { sharedPreferences.edit().putBoolean(touchpadOnlyEnabledKey, value).apply() }
+
+	val rumbleEnabledKey get() = resources.getString(R.string.preferences_rumble_enabled_key)
+	var rumbleEnabled
+		get() = sharedPreferences.getBoolean(rumbleEnabledKey, true)
+		set(value) { sharedPreferences.edit().putBoolean(rumbleEnabledKey, value).apply() }
+
+	val motionEnabledKey get() = resources.getString(R.string.preferences_motion_enabled_key)
+	var motionEnabled
+		get() = sharedPreferences.getBoolean(motionEnabledKey, true)
+		set(value) { sharedPreferences.edit().putBoolean(motionEnabledKey, value).apply() }
+
+	val buttonHapticEnabledKey get() = resources.getString(R.string.preferences_button_haptic_enabled_key)
+	var buttonHapticEnabled
+		get() = sharedPreferences.getBoolean(buttonHapticEnabledKey, true)
+		set(value) { sharedPreferences.edit().putBoolean(buttonHapticEnabledKey, value).apply() }
 
 	val logVerboseKey get() = resources.getString(R.string.preferences_log_verbose_key)
 	var logVerbose
@@ -112,12 +121,19 @@ class Preferences(context: Context)
 	private val bitrateAutoSubject by lazy { BehaviorSubject.createDefault(bitrateAuto) }
 	val bitrateAutoObservable: Observable<Int> get() = bitrateAutoSubject
 
-	private val videoProfileDefaultBitrate get() = ConnectVideoProfile.preset(resolution.preset, fps.preset)
+	val codecKey get() = resources.getString(R.string.preferences_codec_key)
+	var codec
+		get() = sharedPreferences.getString(codecKey, codecDefault.value)?.let { value ->
+			Codec.values().firstOrNull { it.value == value }
+		}  ?: codecDefault
+		set(value) { sharedPreferences.edit().putString(codecKey, value.value).apply() }
+
+	private val videoProfileDefaultBitrate get() = ConnectVideoProfile.preset(resolution.preset, fps.preset, codec.codec)
 	val videoProfile get() = videoProfileDefaultBitrate.let {
 		val bitrate = bitrate
 		if(bitrate == null)
 			it
 		else
-			ConnectVideoProfile(it.width, it.height, it.maxFPS, bitrate)
+			it.copy(bitrate = bitrate)
 	}
 }

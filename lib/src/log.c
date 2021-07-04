@@ -1,24 +1,10 @@
-/*
- * This file is part of Chiaki.
- *
- * Chiaki is free software: you can redistribute it and/or modify
- * it under the terms of the GNU General Public License as published by
- * the Free Software Foundation, either version 3 of the License, or
- * (at your option) any later version.
- *
- * Chiaki is distributed in the hope that it will be useful,
- * but WITHOUT ANY WARRANTY; without even the implied warranty of
- * MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
- * GNU General Public License for more details.
- *
- * You should have received a copy of the GNU General Public License
- * along with Chiaki.  If not, see <https://www.gnu.org/licenses/>.
- */
+// SPDX-License-Identifier: LicenseRef-AGPL-3.0-only-OpenSSL
 
 #include <chiaki/log.h>
 
 #include <stdio.h>
 #include <stdarg.h>
+#include <string.h>
 
 CHIAKI_EXPORT char chiaki_log_level_char(ChiakiLogLevel level)
 {
@@ -191,4 +177,51 @@ CHIAKI_EXPORT void chiaki_log_hexdump_raw(ChiakiLog *log, ChiakiLogLevel level, 
 	str[buf_size*2] = 0;
 	chiaki_log(log, level, "%s", str);
 	free(str);
+}
+
+static void log_sniffer_cb(ChiakiLogLevel level, const char *msg, void *user);
+
+CHIAKI_EXPORT void chiaki_log_sniffer_init(ChiakiLogSniffer *sniffer, uint32_t level_mask, ChiakiLog *forward_log)
+{
+	sniffer->forward_log = forward_log;
+	// level_mask is applied later and everything is forwarded unmasked, so use ALL here:
+	chiaki_log_init(&sniffer->sniff_log, CHIAKI_LOG_ALL, log_sniffer_cb, sniffer);
+	sniffer->sniff_level_mask = level_mask;
+	sniffer->buf = calloc(1, 1);
+	sniffer->buf_len = '\0';
+}
+
+CHIAKI_EXPORT void chiaki_log_sniffer_fini(ChiakiLogSniffer *sniffer)
+{
+	free(sniffer->buf);
+}
+
+static void log_sniffer_push(ChiakiLogSniffer *sniffer, ChiakiLogLevel level, const char *msg)
+{
+	size_t len = strlen(msg);
+	if(!len)
+		return;
+	bool nl = sniffer->buf_len != 0;
+	char *new_buf = realloc(sniffer->buf, sniffer->buf_len + (nl ? 1 : 0) + 4 + len + 1);
+	if(!new_buf)
+		return;
+	sniffer->buf = new_buf;
+	if(nl)
+		sniffer->buf[sniffer->buf_len++] = '\n';
+	sniffer->buf[sniffer->buf_len++] = '[';
+	sniffer->buf[sniffer->buf_len++] = chiaki_log_level_char(level);
+	sniffer->buf[sniffer->buf_len++] = ']';
+	sniffer->buf[sniffer->buf_len++] = ' ';
+	memcpy(sniffer->buf + sniffer->buf_len, msg, len);
+	sniffer->buf_len += len;
+	sniffer->buf[sniffer->buf_len] = '\0';
+}
+
+static void log_sniffer_cb(ChiakiLogLevel level, const char *msg, void *user)
+{
+	ChiakiLogSniffer *sniffer = user;
+	if(level & sniffer->sniff_level_mask)
+		log_sniffer_push(sniffer, level, msg);
+	if(sniffer->forward_log)
+		chiaki_log(sniffer->forward_log, level, "%s", msg);
 }

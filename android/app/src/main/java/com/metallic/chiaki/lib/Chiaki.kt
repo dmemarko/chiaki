@@ -3,10 +3,28 @@ package com.metallic.chiaki.lib
 import android.os.Parcelable
 import android.util.Log
 import android.view.Surface
-import kotlinx.android.parcel.Parcelize
+import kotlinx.parcelize.Parcelize
 import java.lang.Exception
 import java.net.InetSocketAddress
 import kotlin.math.abs
+
+enum class Target(val value: Int)
+{
+	PS4_UNKNOWN(0),
+	PS4_8(800),
+	PS4_9(900),
+	PS4_10(1000),
+	PS5_UNKNOWN(1000000),
+	PS5_1(1000100);
+
+	companion object
+	{
+		@JvmStatic
+		fun fromValue(value: Int) = values().firstOrNull { it.value == value } ?: PS4_10
+	}
+
+	val isPS5 get() = value >= PS5_UNKNOWN.value
+}
 
 enum class VideoResolutionPreset(val value: Int)
 {
@@ -22,23 +40,32 @@ enum class VideoFPSPreset(val value: Int)
 	FPS_60(60)
 }
 
+enum class Codec(val value: Int)
+{
+	CODEC_H264(0),
+	CODEC_H265(1),
+	CODEC_H265_HDR(2)
+}
+
 @Parcelize
 data class ConnectVideoProfile(
 	val width: Int,
 	val height: Int,
 	val maxFPS: Int,
-	val bitrate: Int
+	val bitrate: Int,
+	val codec: Codec
 ): Parcelable
 {
 	companion object
 	{
-		fun preset(resolutionPreset: VideoResolutionPreset, fpsPreset: VideoFPSPreset)
-				= ChiakiNative.videoProfilePreset(resolutionPreset.value, fpsPreset.value)
+		fun preset(resolutionPreset: VideoResolutionPreset, fpsPreset: VideoFPSPreset, codec: Codec)
+				= ChiakiNative.videoProfilePreset(resolutionPreset.value, fpsPreset.value, codec)
 	}
 }
 
 @Parcelize
 data class ConnectInfo(
+	val ps5: Boolean,
 	val host: String,
 	val registKey: ByteArray,
 	val morning: ByteArray,
@@ -57,18 +84,18 @@ private class ChiakiNative
 		@JvmStatic external fun errorCodeToString(value: Int): String
 		@JvmStatic external fun quitReasonToString(value: Int): String
 		@JvmStatic external fun quitReasonIsStopped(value: Int): Boolean
-		@JvmStatic external fun videoProfilePreset(resolutionPreset: Int, fpsPreset: Int): ConnectVideoProfile
+		@JvmStatic external fun videoProfilePreset(resolutionPreset: Int, fpsPreset: Int, codec: Codec): ConnectVideoProfile
 		@JvmStatic external fun sessionCreate(result: CreateResult, connectInfo: ConnectInfo, logFile: String?, logVerbose: Boolean, javaSession: Session)
 		@JvmStatic external fun sessionFree(ptr: Long)
 		@JvmStatic external fun sessionStart(ptr: Long): Int
 		@JvmStatic external fun sessionStop(ptr: Long): Int
 		@JvmStatic external fun sessionJoin(ptr: Long): Int
-		@JvmStatic external fun sessionSetSurface(ptr: Long, surface: Surface)
+		@JvmStatic external fun sessionSetSurface(ptr: Long, surface: Surface?)
 		@JvmStatic external fun sessionSetControllerState(ptr: Long, controllerState: ControllerState)
 		@JvmStatic external fun sessionSetLoginPin(ptr: Long, pin: String)
 		@JvmStatic external fun discoveryServiceCreate(result: CreateResult, options: DiscoveryServiceOptions, javaService: DiscoveryService)
 		@JvmStatic external fun discoveryServiceFree(ptr: Long)
-		@JvmStatic external fun discoveryServiceWakeup(ptr: Long, host: String, userCredential: Long)
+		@JvmStatic external fun discoveryServiceWakeup(ptr: Long, host: String, userCredential: Long, ps5: Boolean)
 		@JvmStatic external fun registStart(result: CreateResult, registInfo: RegistInfo, javaLog: ChiakiLog, javaRegist: Regist)
 		@JvmStatic external fun registStop(ptr: Long)
 		@JvmStatic external fun registFree(ptr: Long)
@@ -122,6 +149,14 @@ class ChiakiLog(val levelMask: Int, val callback: (level: Int, text: String) -> 
 
 private fun maxAbs(a: Short, b: Short) = if(abs(a.toInt()) > abs(b.toInt())) a else b
 
+private val CONTROLLER_TOUCHES_MAX = 2 // must be the same as CHIAKI_CONTROLLER_TOUCHES_MAX
+
+data class ControllerTouch(
+	var x: UShort = 0U,
+	var y: UShort = 0U,
+	var id: Byte = -1 // -1 = up
+)
+
 data class ControllerState constructor(
 	var buttons: UInt = 0U,
 	var l2State: UByte = 0U,
@@ -129,26 +164,40 @@ data class ControllerState constructor(
 	var leftX: Short = 0,
 	var leftY: Short = 0,
 	var rightX: Short = 0,
-	var rightY: Short = 0
+	var rightY: Short = 0,
+	private var touchIdNext: UByte = 0U,
+	var touches: Array<ControllerTouch> = arrayOf(ControllerTouch(), ControllerTouch()),
+	var gyroX: Float = 0.0f,
+	var gyroY: Float = 0.0f,
+	var gyroZ: Float = 0.0f,
+	var accelX: Float = 0.0f,
+	var accelY: Float = 1.0f,
+	var accelZ: Float = 0.0f,
+	var orientX: Float = 0.0f,
+	var orientY: Float = 0.0f,
+	var orientZ: Float = 0.0f,
+	var orientW: Float = 1.0f
 ){
 	companion object
 	{
 		val BUTTON_CROSS 		= (1 shl 0).toUInt()
 		val BUTTON_MOON 		= (1 shl 1).toUInt()
-		val BUTTON_BOX 		= (1 shl 2).toUInt()
-		val BUTTON_PYRAMID 	= (1 shl 3).toUInt()
+		val BUTTON_BOX 			= (1 shl 2).toUInt()
+		val BUTTON_PYRAMID 		= (1 shl 3).toUInt()
 		val BUTTON_DPAD_LEFT 	= (1 shl 4).toUInt()
 		val BUTTON_DPAD_RIGHT	= (1 shl 5).toUInt()
-		val BUTTON_DPAD_UP 	= (1 shl 6).toUInt()
+		val BUTTON_DPAD_UP 		= (1 shl 6).toUInt()
 		val BUTTON_DPAD_DOWN 	= (1 shl 7).toUInt()
-		val BUTTON_L1 		= (1 shl 8).toUInt()
-		val BUTTON_R1 		= (1 shl 9).toUInt()
+		val BUTTON_L1 			= (1 shl 8).toUInt()
+		val BUTTON_R1 			= (1 shl 9).toUInt()
 		val BUTTON_L3			= (1 shl 10).toUInt()
 		val BUTTON_R3			= (1 shl 11).toUInt()
-		val BUTTON_OPTIONS 	= (1 shl 12).toUInt()
+		val BUTTON_OPTIONS		= (1 shl 12).toUInt()
 		val BUTTON_SHARE 		= (1 shl 13).toUInt()
-		val BUTTON_TOUCHPAD	= (1 shl 14).toUInt()
+		val BUTTON_TOUCHPAD		= (1 shl 14).toUInt()
 		val BUTTON_PS			= (1 shl 15).toUInt()
+		val TOUCHPAD_WIDTH: UShort = 1920U
+		val TOUCHPAD_HEIGHT: UShort = 942U
 	}
 
 	infix fun or(o: ControllerState) = ControllerState(
@@ -158,8 +207,102 @@ data class ControllerState constructor(
 		leftX = maxAbs(leftX, o.leftX),
 		leftY = maxAbs(leftY, o.leftY),
 		rightX = maxAbs(rightX, o.rightX),
-		rightY = maxAbs(rightY, o.rightY)
+		rightY = maxAbs(rightY, o.rightY),
+		touches = touches.zip(o.touches) { a, b -> if(a.id >= 0) a else b }.toTypedArray(),
+		gyroX = gyroX,
+		gyroY = gyroY,
+		gyroZ = gyroZ,
+		accelX = accelX,
+		accelY = accelY,
+		accelZ = accelZ,
+		orientX = orientX,
+		orientY = orientY,
+		orientZ = orientZ,
+		orientW = orientW
 	)
+
+	override fun equals(other: Any?): Boolean
+	{
+		if(this === other) return true
+		if(javaClass != other?.javaClass) return false
+
+		other as ControllerState
+
+		if(buttons != other.buttons) return false
+		if(l2State != other.l2State) return false
+		if(r2State != other.r2State) return false
+		if(leftX != other.leftX) return false
+		if(leftY != other.leftY) return false
+		if(rightX != other.rightX) return false
+		if(rightY != other.rightY) return false
+		if(touchIdNext != other.touchIdNext) return false
+		if(!touches.contentEquals(other.touches)) return false
+		if(gyroX != other.gyroX) return false
+		if(gyroY != other.gyroY) return false
+		if(gyroZ != other.gyroZ) return false
+		if(accelX != other.accelX) return false
+		if(accelY != other.accelY) return false
+		if(accelZ != other.accelZ) return false
+		if(orientX != other.orientX) return false
+		if(orientY != other.orientY) return false
+		if(orientZ != other.orientZ) return false
+		if(orientW != other.orientW) return false
+
+		return true
+	}
+
+	override fun hashCode(): Int
+	{
+		var result = buttons.hashCode()
+		result = 31 * result + l2State.hashCode()
+		result = 31 * result + r2State.hashCode()
+		result = 31 * result + leftX
+		result = 31 * result + leftY
+		result = 31 * result + rightX
+		result = 31 * result + rightY
+		result = 31 * result + touchIdNext.hashCode()
+		result = 31 * result + touches.contentHashCode()
+		result = 31 * result + gyroX.hashCode()
+		result = 31 * result + gyroY.hashCode()
+		result = 31 * result + gyroZ.hashCode()
+		result = 31 * result + accelX.hashCode()
+		result = 31 * result + accelY.hashCode()
+		result = 31 * result + accelZ.hashCode()
+		result = 31 * result + orientX.hashCode()
+		result = 31 * result + orientY.hashCode()
+		result = 31 * result + orientZ.hashCode()
+		result = 31 * result + orientW.hashCode()
+		return result
+	}
+
+	fun startTouch(x: UShort, y: UShort): UByte? =
+		touches
+			.find { it.id < 0 }
+			?.also {
+				it.id = touchIdNext.toByte()
+				it.x = x
+				it.y = y
+				touchIdNext = ((touchIdNext + 1U) and 0x7fU).toUByte()
+			}?.id?.toUByte()
+
+	fun stopTouch(id: UByte)
+	{
+		touches.find {
+			it.id >= 0 && it.id == id.toByte()
+		}?.let {
+			it.id = -1
+		}
+	}
+
+	fun setTouchPos(id: UByte, x: UShort, y: UShort): Boolean
+		= touches.find {
+			it.id >= 0 && it.id == id.toByte()
+		}?.let {
+			val r = it.x != x || it.y != y
+			it.x = x
+			it.y = y
+			r
+		} ?: false
 }
 
 class QuitReason(val value: Int)
@@ -176,6 +319,7 @@ sealed class Event
 object ConnectedEvent: Event()
 data class LoginPinRequestEvent(val pinIncorrect: Boolean): Event()
 data class QuitEvent(val reason: QuitReason, val reasonString: String?): Event()
+data class RumbleEvent(val left: UByte, val right: UByte): Event()
 
 class CreateError(val errorCode: ErrorCode): Exception("Failed to create a native object: $errorCode")
 
@@ -231,7 +375,12 @@ class Session(connectInfo: ConnectInfo, logFile: String?, logVerbose: Boolean)
 		event(QuitEvent(QuitReason(reasonValue), reasonString))
 	}
 
-	fun setSurface(surface: Surface)
+	private fun eventRumble(left: Int, right: Int)
+	{
+		event(RumbleEvent(left.toUByte(), right.toUByte()))
+	}
+
+	fun setSurface(surface: Surface?)
 	{
 		ChiakiNative.sessionSetSurface(nativePtr, surface)
 	}
@@ -265,6 +414,8 @@ data class DiscoveryHost(
 		READY,
 		STANDBY
 	}
+	
+	val isPS5 get() = deviceDiscoveryProtocolVersion == "00030010"
 }
 
 
@@ -281,8 +432,8 @@ class DiscoveryService(
 {
 	companion object
 	{
-		fun wakeup(service: DiscoveryService?, host: String, userCredential: ULong) =
-			ChiakiNative.discoveryServiceWakeup(service?.nativePtr ?: 0, host, userCredential.toLong())
+		fun wakeup(service: DiscoveryService?, host: String, userCredential: ULong, ps5: Boolean) =
+			ChiakiNative.discoveryServiceWakeup(service?.nativePtr ?: 0, host, userCredential.toLong(), ps5)
 	}
 
 	private var nativePtr: Long
@@ -316,6 +467,7 @@ class DiscoveryService(
 
 @Parcelize
 data class RegistInfo(
+	val target: Target,
 	val host: String,
 	val broadcast: Boolean,
 	val psnOnlineId: String?,
@@ -330,12 +482,13 @@ data class RegistInfo(
 }
 
 data class RegistHost(
+	val target: Target,
 	val apSsid: String,
 	val apBssid: String,
 	val apKey: String,
 	val apName: String,
-	val ps4Mac: ByteArray,
-	val ps4Nickname: String,
+	val serverMac: ByteArray,
+	val serverNickname: String,
 	val rpRegistKey: ByteArray,
 	val rpKeyType: UInt,
 	val rpKey: ByteArray

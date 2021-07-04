@@ -20,6 +20,24 @@
             app:icon="@drawable/ic_gamepad" />
 
         <SwitchPreference
+            app:key="@string/preferences_rumble_enabled_key"
+            app:title="@string/preferences_rumble_enabled_title"
+            app:summary="@string/preferences_rumble_enabled_summary"
+            app:icon="@drawable/ic_rumble" />
+
+        <SwitchPreference
+            app:key="@string/preferences_motion_enabled_key"
+            app:title="@string/preferences_motion_enabled_title"
+            app:summary="@string/preferences_motion_enabled_summary"
+            app:icon="@drawable/ic_motion" />
+
+        <SwitchPreference
+            app:key="@string/preferences_button_haptic_enabled_key"
+            app:title="@string/preferences_button_haptic_enabled_title"
+            app:summary="@string/preferences_button_haptic_enabled_summary"
+            app:icon="@drawable/ic_button_haptic" />
+
+        <SwitchPreference
             app:key="@string/preferences_log_verbose_key"
             app:title="@string/preferences_log_verbose_title"
             app:summary="@string/preferences_log_verbose_summary"
@@ -52,6 +70,12 @@
             app:key="@string/preferences_bitrate_key"
             app:title="@string/preferences_bitrate_title"
             app:icon="@drawable/ic_bitrate"/>
+
+        <ListPreference
+            app:key="@string/preferences_codec_key"
+            app:title="@string/preferences_codec_title"
+            app:summary="%s"
+            app:icon="@drawable/ic_codec"/>
     </PreferenceCategory>
 
     <PreferenceCategory

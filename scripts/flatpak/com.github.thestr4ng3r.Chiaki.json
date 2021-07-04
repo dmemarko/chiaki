@@ -88,9 +88,9 @@
             "sources": [
                 {
                     "type": "git",
-                    "url": "https://github.com/thestr4ng3r/chiaki.git",
-		    "tag": "v1.2.1",
-		    "commit": "89c9bd44c354d1351fb9b9a8f9f0aade8077a129"
+                    "url": "https://git.sr.ht/~thestr4ng3r/chiaki",
+		    "tag": "v2.1.1",
+		    "commit": "2257030adeb5c5a84380c78d34be4d783971663c"
                 }
             ]
         }

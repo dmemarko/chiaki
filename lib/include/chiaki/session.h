@@ -1,19 +1,4 @@
-/*
- * This file is part of Chiaki.
- *
- * Chiaki is free software: you can redistribute it and/or modify
- * it under the terms of the GNU General Public License as published by
- * the Free Software Foundation, either version 3 of the License, or
- * (at your option) any later version.
- *
- * Chiaki is distributed in the hope that it will be useful,
- * but WITHOUT ANY WARRANTY; without even the implied warranty of
- * MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
- * GNU General Public License for more details.
- *
- * You should have received a copy of the GNU General Public License
- * along with Chiaki.  If not, see <https://www.gnu.org/licenses/>.
- */
+// SPDX-License-Identifier: LicenseRef-AGPL-3.0-only-OpenSSL
 
 #ifndef CHIAKI_SESSION_H
 #define CHIAKI_SESSION_H
@@ -27,8 +12,6 @@
 #include "takion.h"
 #include "ecdh.h"
 #include "audio.h"
-#include "audioreceiver.h"
-#include "videoreceiver.h"
 #include "controller.h"
 #include "stoppipe.h"
 
@@ -43,22 +26,16 @@ extern "C" {
 #define CHIAKI_RP_APPLICATION_REASON_IN_USE				0x80108b10
 #define CHIAKI_RP_APPLICATION_REASON_CRASH				0x80108b15
 #define CHIAKI_RP_APPLICATION_REASON_RP_VERSION			0x80108b11
-// unknown: 0x80108bff
+#define CHIAKI_RP_APPLICATION_REASON_UNKNOWN			0x80108bff
 
 CHIAKI_EXPORT const char *chiaki_rp_application_reason_string(uint32_t reason);
-
-typedef enum {
-	CHIAKI_RP_VERSION_UNKNOWN = 0,
-	CHIAKI_RP_VERSION_8_0 = 800,
-	CHIAKI_RP_VERSION_9_0 = 900
-} ChiakiRpVersion;
 
 /**
  * @return RP-Version string or NULL
  */
-CHIAKI_EXPORT const char *chiaki_rp_version_string(ChiakiRpVersion version);
+CHIAKI_EXPORT const char *chiaki_rp_version_string(ChiakiTarget target);
 
-CHIAKI_EXPORT ChiakiRpVersion chiaki_rp_version_parse(const char *rp_version_str);
+CHIAKI_EXPORT ChiakiTarget chiaki_rp_version_parse(const char *rp_version_str, bool is_ps5);
 
 
 #define CHIAKI_RP_DID_SIZE 32
@@ -71,6 +48,7 @@ typedef struct chiaki_connect_video_profile_t
 	unsigned int height;
 	unsigned int max_fps;
 	unsigned int bitrate;
+	ChiakiCodec codec;
 } ChiakiConnectVideoProfile;
 
 typedef enum {
@@ -93,10 +71,13 @@ CHIAKI_EXPORT void chiaki_connect_video_profile_preset(ChiakiConnectVideoProfile
 
 typedef struct chiaki_connect_info_t
 {
+	bool ps5;
 	const char *host; // null terminated
 	char regist_key[CHIAKI_SESSION_AUTH_SIZE]; // must be completely filled (pad with \0)
 	uint8_t morning[0x10];
 	ChiakiConnectVideoProfile video_profile;
+	bool video_profile_auto_downgrade; // Downgrade video_profile if server does not seem to support it.
+	bool enable_keyboard;
 } ChiakiConnectInfo;
 
 
@@ -123,16 +104,31 @@ typedef struct chiaki_quit_event_t
 	const char *reason_str;
 } ChiakiQuitEvent;
 
+typedef struct chiaki_keyboard_event_t
+{
+	const char *text_str;
+} ChiakiKeyboardEvent;
+
 typedef struct chiaki_audio_stream_info_event_t
 {
 	ChiakiAudioHeader audio_header;
 } ChiakiAudioStreamInfoEvent;
 
+typedef struct chiaki_rumble_event_t
+{
+	uint8_t unknown;
+	uint8_t left; // low-frequency
+	uint8_t right; // high-frequency
+} ChiakiRumbleEvent;
 
 typedef enum {
 	CHIAKI_EVENT_CONNECTED,
 	CHIAKI_EVENT_LOGIN_PIN_REQUEST,
-	CHIAKI_EVENT_QUIT
+	CHIAKI_EVENT_KEYBOARD_OPEN,
+	CHIAKI_EVENT_KEYBOARD_TEXT_CHANGE,
+	CHIAKI_EVENT_KEYBOARD_REMOTE_CLOSE,
+	CHIAKI_EVENT_RUMBLE,
+	CHIAKI_EVENT_QUIT,
 } ChiakiEventType;
 
 typedef struct chiaki_event_t
@@ -141,6 +137,8 @@ typedef struct chiaki_event_t
 	union
 	{
 		ChiakiQuitEvent quit;
+		ChiakiKeyboardEvent keyboard;
+		ChiakiRumbleEvent rumble;
 		struct
 		{
 			bool pin_incorrect; // false on first request, true if the pin entered before was incorrect
@@ -162,16 +160,19 @@ typedef struct chiaki_session_t
 {
 	struct
 	{
+		bool ps5;
 		struct addrinfo *host_addrinfos;
 		struct addrinfo *host_addrinfo_selected;
-		char hostname[128];
+		char hostname[256];
 		char regist_key[CHIAKI_RPCRYPT_KEY_SIZE];
 		uint8_t morning[CHIAKI_RPCRYPT_KEY_SIZE];
 		uint8_t did[CHIAKI_RP_DID_SIZE];
 		ChiakiConnectVideoProfile video_profile;
+		bool video_profile_auto_downgrade;
+		bool enable_keyboard;
 	} connect_info;
 
-	ChiakiRpVersion rp_version;
+	ChiakiTarget target;
 
 	uint8_t nonce[CHIAKI_RPCRYPT_KEY_SIZE];
 	ChiakiRPCrypt rpcrypt;
@@ -209,8 +210,6 @@ typedef struct chiaki_session_t
 	ChiakiLog *log;
 
 	ChiakiStreamConnection stream_connection;
-	ChiakiAudioReceiver *audio_receiver;
-	ChiakiVideoReceiver *video_receiver;
 
 	ChiakiControllerState controller_state;
 } ChiakiSession;
@@ -222,6 +221,10 @@ CHIAKI_EXPORT ChiakiErrorCode chiaki_session_stop(ChiakiSession *session);
 CHIAKI_EXPORT ChiakiErrorCode chiaki_session_join(ChiakiSession *session);
 CHIAKI_EXPORT ChiakiErrorCode chiaki_session_set_controller_state(ChiakiSession *session, ChiakiControllerState *state);
 CHIAKI_EXPORT ChiakiErrorCode chiaki_session_set_login_pin(ChiakiSession *session, const uint8_t *pin, size_t pin_size);
+CHIAKI_EXPORT ChiakiErrorCode chiaki_session_goto_bed(ChiakiSession *session);
+CHIAKI_EXPORT ChiakiErrorCode chiaki_session_keyboard_set_text(ChiakiSession *session, const char *text);
+CHIAKI_EXPORT ChiakiErrorCode chiaki_session_keyboard_reject(ChiakiSession *session);
+CHIAKI_EXPORT ChiakiErrorCode chiaki_session_keyboard_accept(ChiakiSession *session);
 
 static inline void chiaki_session_set_event_cb(ChiakiSession *session, ChiakiEventCallback cb, void *user)
 {

@@ -1,19 +1,4 @@
-/*
- * This file is part of Chiaki.
- *
- * Chiaki is free software: you can redistribute it and/or modify
- * it under the terms of the GNU General Public License as published by
- * the Free Software Foundation, either version 3 of the License, or
- * (at your option) any later version.
- *
- * Chiaki is distributed in the hope that it will be useful,
- * but WITHOUT ANY WARRANTY; without even the implied warranty of
- * MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
- * GNU General Public License for more details.
- *
- * You should have received a copy of the GNU General Public License
- * along with Chiaki.  If not, see <https://www.gnu.org/licenses/>.
- */
+// SPDX-License-Identifier: LicenseRef-AGPL-3.0-only-OpenSSL
 
 #include <discoverymanager.h>
 #include <exception.h>
@@ -73,7 +58,6 @@ void DiscoveryManager::SetActive(bool active)
 
 		sockaddr_in addr = {};
 		addr.sin_family = AF_INET;
-		addr.sin_port = htons(CHIAKI_DISCOVERY_PORT);
 		addr.sin_addr.s_addr = 0xffffffff; // 255.255.255.255
 		options.send_addr = reinterpret_cast<sockaddr *>(&addr);
 		options.send_addr_size = sizeof(addr);
@@ -95,7 +79,7 @@ void DiscoveryManager::SetActive(bool active)
 
 }
 
-void DiscoveryManager::SendWakeup(const QString &host, const QByteArray &regist_key)
+void DiscoveryManager::SendWakeup(const QString &host, const QByteArray &regist_key, bool ps5)
 {
 	QByteArray key = regist_key;
 	for(size_t i=0; i<key.size(); i++)
@@ -115,7 +99,7 @@ void DiscoveryManager::SendWakeup(const QString &host, const QByteArray &regist_
 		throw Exception("Invalid regist key");
 	}
 
-	ChiakiErrorCode err = chiaki_discovery_wakeup(&log, service_active ? &service.discovery : nullptr, host.toUtf8().constData(), credential);
+	ChiakiErrorCode err = chiaki_discovery_wakeup(&log, service_active ? &service.discovery : nullptr, host.toUtf8().constData(), credential, ps5);
 
 	if(err != CHIAKI_ERR_SUCCESS)
 		throw Exception(QString("Failed to send Packet: %1").arg(chiaki_error_string(err)));
@@ -145,6 +129,7 @@ static void DiscoveryServiceHostsCallback(ChiakiDiscoveryHost *hosts, size_t hos
 	{
 		ChiakiDiscoveryHost *h = hosts + i;
 		DiscoveryHost o = {};
+		o.ps5 = chiaki_discovery_host_is_ps5(h);
 		o.state = h->state;
 		o.host_request_port = o.host_request_port;
 #define CONVERT_STRING(name) if(h->name) { o.name = QString::fromLocal8Bit(h->name); }

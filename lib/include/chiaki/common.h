@@ -1,19 +1,4 @@
-/*
- * This file is part of Chiaki.
- *
- * Chiaki is free software: you can redistribute it and/or modify
- * it under the terms of the GNU General Public License as published by
- * the Free Software Foundation, either version 3 of the License, or
- * (at your option) any later version.
- *
- * Chiaki is distributed in the hope that it will be useful,
- * but WITHOUT ANY WARRANTY; without even the implied warranty of
- * MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
- * GNU General Public License for more details.
- *
- * You should have received a copy of the GNU General Public License
- * along with Chiaki.  If not, see <https://www.gnu.org/licenses/>.
- */
+// SPDX-License-Identifier: LicenseRef-AGPL-3.0-only-OpenSSL
 
 #ifndef CHIAKI_COMMON_H
 #define CHIAKI_COMMON_H
@@ -26,6 +11,7 @@
 
 #include <stddef.h>
 #include <stdint.h>
+#include <stdbool.h>
 
 #ifdef __cplusplus
 extern "C" {
@@ -64,7 +50,8 @@ typedef enum
 	CHIAKI_ERR_INVALID_RESPONSE,
 	CHIAKI_ERR_INVALID_MAC,
 	CHIAKI_ERR_UNINITIALIZED,
-	CHIAKI_ERR_FEC_FAILED
+	CHIAKI_ERR_FEC_FAILED,
+	CHIAKI_ERR_VERSION_MISMATCH
 } ChiakiErrorCode;
 
 CHIAKI_EXPORT const char *chiaki_error_string(ChiakiErrorCode code);
@@ -72,10 +59,49 @@ CHIAKI_EXPORT const char *chiaki_error_string(ChiakiErrorCode code);
 CHIAKI_EXPORT void *chiaki_aligned_alloc(size_t alignment, size_t size);
 CHIAKI_EXPORT void chiaki_aligned_free(void *ptr);
 
+typedef enum
+{
+	// values must not change
+	CHIAKI_TARGET_PS4_UNKNOWN =       0,
+	CHIAKI_TARGET_PS4_8 =           800,
+	CHIAKI_TARGET_PS4_9 =           900,
+	CHIAKI_TARGET_PS4_10 =         1000,
+	CHIAKI_TARGET_PS5_UNKNOWN = 1000000,
+	CHIAKI_TARGET_PS5_1 =       1000100
+} ChiakiTarget;
+
+static inline bool chiaki_target_is_unknown(ChiakiTarget target)
+{
+	return target == CHIAKI_TARGET_PS5_UNKNOWN
+		|| target == CHIAKI_TARGET_PS4_UNKNOWN;
+}
+
+static inline bool chiaki_target_is_ps5(ChiakiTarget target) { return target >= CHIAKI_TARGET_PS5_UNKNOWN; }
+
 /**
  * Perform initialization of global state needed for using the Chiaki lib
  */
 CHIAKI_EXPORT ChiakiErrorCode chiaki_lib_init();
+
+typedef enum
+{
+	// values must not change
+	CHIAKI_CODEC_H264 = 0,
+	CHIAKI_CODEC_H265 = 1,
+	CHIAKI_CODEC_H265_HDR = 2
+} ChiakiCodec;
+
+static inline bool chiaki_codec_is_h265(ChiakiCodec codec)
+{
+	return codec == CHIAKI_CODEC_H265 || codec == CHIAKI_CODEC_H265_HDR;
+}
+
+static inline bool chiaki_codec_is_hdr(ChiakiCodec codec)
+{
+	return codec == CHIAKI_CODEC_H265_HDR;
+}
+
+CHIAKI_EXPORT const char *chiaki_codec_name(ChiakiCodec codec);
 
 #ifdef __cplusplus
 }

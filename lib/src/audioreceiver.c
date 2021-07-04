@@ -1,19 +1,4 @@
-/*
- * This file is part of Chiaki.
- *
- * Chiaki is free software: you can redistribute it and/or modify
- * it under the terms of the GNU General Public License as published by
- * the Free Software Foundation, either version 3 of the License, or
- * (at your option) any later version.
- *
- * Chiaki is distributed in the hope that it will be useful,
- * but WITHOUT ANY WARRANTY; without even the implied warranty of
- * MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
- * GNU General Public License for more details.
- *
- * You should have received a copy of the GNU General Public License
- * along with Chiaki.  If not, see <https://www.gnu.org/licenses/>.
- */
+// SPDX-License-Identifier: LicenseRef-AGPL-3.0-only-OpenSSL
 
 #include <chiaki/audioreceiver.h>
 #include <chiaki/session.h>
@@ -22,10 +7,11 @@
 
 static void chiaki_audio_receiver_frame(ChiakiAudioReceiver *audio_receiver, ChiakiSeqNum16 frame_index, uint8_t *buf, size_t buf_size);
 
-CHIAKI_EXPORT ChiakiErrorCode chiaki_audio_receiver_init(ChiakiAudioReceiver *audio_receiver, ChiakiSession *session)
+CHIAKI_EXPORT ChiakiErrorCode chiaki_audio_receiver_init(ChiakiAudioReceiver *audio_receiver, ChiakiSession *session, ChiakiPacketStats *packet_stats)
 {
 	audio_receiver->session = session;
 	audio_receiver->log = session->log;
+	audio_receiver->packet_stats = packet_stats;
 
 	audio_receiver->frame_index_prev = 0;
 	audio_receiver->frame_index_startup = true;
@@ -37,7 +23,6 @@ CHIAKI_EXPORT ChiakiErrorCode chiaki_audio_receiver_init(ChiakiAudioReceiver *au
 	return CHIAKI_ERR_SUCCESS;
 }
 
-
 CHIAKI_EXPORT void chiaki_audio_receiver_fini(ChiakiAudioReceiver *audio_receiver)
 {
 #ifdef CHIAKI_LIB_ENABLE_OPUS
@@ -45,7 +30,6 @@ CHIAKI_EXPORT void chiaki_audio_receiver_fini(ChiakiAudioReceiver *audio_receive
 #endif
 	chiaki_mutex_fini(&audio_receiver->mutex);
 }
-
 
 CHIAKI_EXPORT void chiaki_audio_receiver_stream_info(ChiakiAudioReceiver *audio_receiver, ChiakiAudioHeader *audio_header)
 {
@@ -92,14 +76,16 @@ CHIAKI_EXPORT void chiaki_audio_receiver_av_packet(ChiakiAudioReceiver *audio_re
 
 	if(packet->data_size != (size_t)unit_size * (size_t)packet->units_in_frame_total)
 	{
-		CHIAKI_LOGE(audio_receiver->log, "Audio AV Packet size mismatch");
+		CHIAKI_LOGE(audio_receiver->log, "Audio AV Packet size mismatch %#llx vs %#llx",
+			(unsigned long long)packet->data_size,
+			(unsigned long long)(unit_size * packet->units_in_frame_total));
 		return;
 	}
 
 	if(packet->frame_index > (1 << 15))
 		audio_receiver->frame_index_startup = false;
 
-	for(size_t i=0; i<source_units_count+fec_units_count; i++)
+	for(size_t i = 0; i < source_units_count + fec_units_count; i++)
 	{
 		ChiakiSeqNum16 frame_index;
 		if(i < source_units_count)
@@ -116,8 +102,11 @@ CHIAKI_EXPORT void chiaki_audio_receiver_av_packet(ChiakiAudioReceiver *audio_re
 			frame_index = packet->frame_index - fec_units_count + fec_index;
 		}
 
-		chiaki_audio_receiver_frame(audio_receiver->session->audio_receiver, frame_index, packet->data + unit_size * i, unit_size);
+		chiaki_audio_receiver_frame(audio_receiver, frame_index, packet->data + unit_size * i, unit_size);
 	}
+
+	if(audio_receiver->packet_stats)
+		chiaki_packet_stats_push_seq(audio_receiver->packet_stats, packet->frame_index);
 }
 
 static void chiaki_audio_receiver_frame(ChiakiAudioReceiver *audio_receiver, ChiakiSeqNum16 frame_index, uint8_t *buf, size_t buf_size)

@@ -1,26 +1,10 @@
-/*
- * This file is part of Chiaki.
- *
- * Chiaki is free software: you can redistribute it and/or modify
- * it under the terms of the GNU General Public License as published by
- * the Free Software Foundation, either version 3 of the License, or
- * (at your option) any later version.
- *
- * Chiaki is distributed in the hope that it will be useful,
- * but WITHOUT ANY WARRANTY; without even the implied warranty of
- * MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
- * GNU General Public License for more details.
- *
- * You should have received a copy of the GNU General Public License
- * along with Chiaki.  If not, see <https://www.gnu.org/licenses/>.
- */
+// SPDX-License-Identifier: LicenseRef-AGPL-3.0-only-OpenSSL
 
 #include <settingsdialog.h>
 #include <settings.h>
 #include <settingskeycapturedialog.h>
 #include <registdialog.h>
 #include <sessionlog.h>
-#include <videodecoder.h>
 
 #include <QHBoxLayout>
 #include <QVBoxLayout>
@@ -34,14 +18,18 @@
 #include <QMap>
 #include <QCheckBox>
 #include <QLineEdit>
+#include <QtConcurrent>
+#include <QFutureWatcher>
+
+#include <chiaki/config.h>
+#include <chiaki/ffmpegdecoder.h>
 
 const char * const about_string =
 	"<h1>Chiaki</h1> by thestr4ng3r, version " CHIAKI_VERSION
 	""
 	"<p>This program is free software: you can redistribute it and/or modify "
-	"it under the terms of the GNU General Public License as published by "
-	"the Free Software Foundation, either version 3 of the License, or "
-	"(at your option) any later version.</p>"
+	"it under the terms of the GNU Affero General Public License version 3 "
+	"as published by the Free Software Foundation.</p>"
 	""
 	"<p>This program is distributed in the hope that it will be useful, "
 	"but WITHOUT ANY WARRANTY; without even the implied warranty of "
@@ -85,6 +73,53 @@ SettingsDialog::SettingsDialog(Settings *settings, QWidget *parent) : QDialog(pa
 	log_directory_label->setReadOnly(true);
 	general_layout->addRow(tr("Log Directory:"), log_directory_label);
 
+	disconnect_action_combo_box = new QComboBox(this);
+	QList<QPair<DisconnectAction, const char *>> disconnect_action_strings = {
+		{ DisconnectAction::AlwaysNothing, "Do Nothing"},
+		{ DisconnectAction::AlwaysSleep, "Enter Sleep Mode"},
+		{ DisconnectAction::Ask, "Ask"}
+	};
+	auto current_disconnect_action = settings->GetDisconnectAction();
+	for(const auto &p : disconnect_action_strings)
+	{
+		disconnect_action_combo_box->addItem(tr(p.second), (int)p.first);
+		if(current_disconnect_action == p.first)
+			disconnect_action_combo_box->setCurrentIndex(disconnect_action_combo_box->count() - 1);
+	}
+	connect(disconnect_action_combo_box, SIGNAL(currentIndexChanged(int)), this, SLOT(DisconnectActionSelected()));
+
+	general_layout->addRow(tr("Action on Disconnect:"), disconnect_action_combo_box);
+
+	audio_device_combo_box = new QComboBox(this);
+	audio_device_combo_box->addItem(tr("Auto"));
+	auto current_audio_device = settings->GetAudioOutDevice();
+	if(!current_audio_device.isEmpty())
+	{
+		// temporarily add the selected device before async fetching is done
+		audio_device_combo_box->addItem(current_audio_device, current_audio_device);
+		audio_device_combo_box->setCurrentIndex(1);
+	}
+	connect(audio_device_combo_box, QOverload<int>::of(&QComboBox::activated), this, [this](){
+		this->settings->SetAudioOutDevice(audio_device_combo_box->currentData().toString());
+	});
+
+	// do this async because it's slow, assuming availableDevices() is thread-safe
+	auto audio_devices_future = QtConcurrent::run([]() {
+		return QAudioDeviceInfo::availableDevices(QAudio::AudioOutput);
+	});
+	auto audio_devices_future_watcher = new QFutureWatcher<QList<QAudioDeviceInfo>>(this);
+	connect(audio_devices_future_watcher, &QFutureWatcher<QList<QAudioDeviceInfo>>::finished, this, [this, audio_devices_future_watcher, settings]() {
+		auto available_devices = audio_devices_future_watcher->result();
+		while(audio_device_combo_box->count() > 1) // remove all but "Auto"
+			audio_device_combo_box->removeItem(1);
+		for(QAudioDeviceInfo di : available_devices)
+			audio_device_combo_box->addItem(di.deviceName(), di.deviceName());
+		int audio_out_device_index = audio_device_combo_box->findData(settings->GetAudioOutDevice());
+		audio_device_combo_box->setCurrentIndex(audio_out_device_index < 0 ? 0 : audio_out_device_index);
+	});
+	audio_devices_future_watcher->setFuture(audio_devices_future);
+	general_layout->addRow(tr("Audio Output Device:"), audio_device_combo_box);
+
 	auto about_button = new QPushButton(tr("About Chiaki"), this);
 	general_layout->addRow(about_button);
 	connect(about_button, &QPushButton::clicked, this, [this]() {
@@ -101,10 +136,10 @@ SettingsDialog::SettingsDialog(Settings *settings, QWidget *parent) : QDialog(pa
 
 	resolution_combo_box = new QComboBox(this);
 	static const QList<QPair<ChiakiVideoResolutionPreset, const char *>> resolution_strings = {
-		{ CHIAKI_VIDEO_RESOLUTION_PRESET_360p, "360p"},
-		{ CHIAKI_VIDEO_RESOLUTION_PRESET_540p, "540p"},
-		{ CHIAKI_VIDEO_RESOLUTION_PRESET_720p, "720p"},
-		{ CHIAKI_VIDEO_RESOLUTION_PRESET_1080p, "1080p (PS4 Pro only)"}
+		{ CHIAKI_VIDEO_RESOLUTION_PRESET_360p, "360p" },
+		{ CHIAKI_VIDEO_RESOLUTION_PRESET_540p, "540p" },
+		{ CHIAKI_VIDEO_RESOLUTION_PRESET_720p, "720p" },
+		{ CHIAKI_VIDEO_RESOLUTION_PRESET_1080p, "1080p (PS5 and PS4 Pro only)" }
 	};
 	auto current_res = settings->GetResolution();
 	for(const auto &p : resolution_strings)
@@ -139,8 +174,23 @@ SettingsDialog::SettingsDialog(Settings *settings, QWidget *parent) : QDialog(pa
 	connect(bitrate_edit, &QLineEdit::textEdited, this, &SettingsDialog::BitrateEdited);
 	UpdateBitratePlaceholder();
 
+	codec_combo_box = new QComboBox(this);
+	static const QList<QPair<ChiakiCodec, QString>> codec_strings = {
+		{ CHIAKI_CODEC_H264, "H264" },
+		{ CHIAKI_CODEC_H265, "H265 (PS5 only)" }
+	};
+	auto current_codec = settings->GetCodec();
+	for(const auto &p : codec_strings)
+	{
+		codec_combo_box->addItem(p.second, (int)p.first);
+		if(current_codec == p.first)
+			codec_combo_box->setCurrentIndex(codec_combo_box->count() - 1);
+	}
+	connect(codec_combo_box, SIGNAL(currentIndexChanged(int)), this, SLOT(CodecSelected()));
+	stream_settings_layout->addRow(tr("Codec:"), codec_combo_box);
+
 	audio_buffer_size_edit = new QLineEdit(this);
-	audio_buffer_size_edit->setValidator(new QIntValidator(1024, 0x20000));
+	audio_buffer_size_edit->setValidator(new QIntValidator(1024, 0x20000, audio_buffer_size_edit));
 	unsigned int audio_buffer_size = settings->GetAudioBufferSizeRaw();
 	audio_buffer_size_edit->setText(audio_buffer_size ? QString::number(audio_buffer_size) : "");
 	stream_settings_layout->addRow(tr("Audio Buffer Size:"), audio_buffer_size_edit);
@@ -155,21 +205,35 @@ SettingsDialog::SettingsDialog(Settings *settings, QWidget *parent) : QDialog(pa
 	auto decode_settings_layout = new QFormLayout();
 	decode_settings->setLayout(decode_settings_layout);
 
-	hardware_decode_combo_box = new QComboBox(this);
-	static const QList<QPair<HardwareDecodeEngine, const char *>> hardware_decode_engines = {
-		{ HW_DECODE_NONE, "none"},
-		{ HW_DECODE_VAAPI, "vaapi"},
-		{ HW_DECODE_VIDEOTOOLBOX, "videotoolbox"}
-	};
-	auto current_hardware_decode_engine = settings->GetHardwareDecodeEngine();
-	for(const auto &p : hardware_decode_engines)
+#if CHIAKI_LIB_ENABLE_PI_DECODER
+	pi_decoder_check_box = new QCheckBox(this);
+	pi_decoder_check_box->setChecked(settings->GetDecoder() == Decoder::Pi);
+	connect(pi_decoder_check_box, &QCheckBox::toggled, this, [this](bool checked) {
+		this->settings->SetDecoder(checked ? Decoder::Pi : Decoder::Ffmpeg);
+		UpdateHardwareDecodeEngineComboBox();
+	});
+	decode_settings_layout->addRow(tr("Use Raspberry Pi Decoder:"), pi_decoder_check_box);
+#else
+	pi_decoder_check_box = nullptr;
+#endif
+
+	hw_decoder_combo_box = new QComboBox(this);
+	hw_decoder_combo_box->addItem("none", QString());
+	auto current_hw_decoder = settings->GetHardwareDecoder();
+	enum AVHWDeviceType hw_dev = AV_HWDEVICE_TYPE_NONE;
+	while(true)
 	{
-		hardware_decode_combo_box->addItem(p.second, (int)p.first);
-		if(current_hardware_decode_engine == p.first)
-			hardware_decode_combo_box->setCurrentIndex(hardware_decode_combo_box->count() - 1);
+		hw_dev = av_hwdevice_iterate_types(hw_dev);
+		if(hw_dev == AV_HWDEVICE_TYPE_NONE)
+			break;
+		QString name = QString::fromUtf8(av_hwdevice_get_type_name(hw_dev));
+		hw_decoder_combo_box->addItem(name, name);
+		if(current_hw_decoder == name)
+			hw_decoder_combo_box->setCurrentIndex(hw_decoder_combo_box->count() - 1);
 	}
-	connect(hardware_decode_combo_box, SIGNAL(currentIndexChanged(int)), this, SLOT(HardwareDecodeEngineSelected()));
-	decode_settings_layout->addRow(tr("Hardware decode method:"), hardware_decode_combo_box);
+	connect(hw_decoder_combo_box, SIGNAL(currentIndexChanged(int)), this, SLOT(HardwareDecodeEngineSelected()));
+	decode_settings_layout->addRow(tr("Hardware decode method:"), hw_decoder_combo_box);
+	UpdateHardwareDecodeEngineComboBox();
 
 	// Registered Consoles
 
@@ -248,6 +312,11 @@ void SettingsDialog::ResolutionSelected()
 	UpdateBitratePlaceholder();
 }
 
+void SettingsDialog::DisconnectActionSelected()
+{
+	settings->SetDisconnectAction(static_cast<DisconnectAction>(disconnect_action_combo_box->currentData().toInt()));
+}
+
 void SettingsDialog::LogVerboseChanged()
 {
 	settings->SetLogVerbose(log_verbose_check_box->isChecked());
@@ -263,14 +332,29 @@ void SettingsDialog::BitrateEdited()
 	settings->SetBitrate(bitrate_edit->text().toUInt());
 }
 
+void SettingsDialog::CodecSelected()
+{
+	settings->SetCodec((ChiakiCodec)codec_combo_box->currentData().toInt());
+}
+
 void SettingsDialog::AudioBufferSizeEdited()
 {
 	settings->SetAudioBufferSize(audio_buffer_size_edit->text().toUInt());
 }
 
+void SettingsDialog::AudioOutputSelected()
+{
+	settings->SetAudioOutDevice(audio_device_combo_box->currentText());
+}
+
 void SettingsDialog::HardwareDecodeEngineSelected()
 {
-	settings->SetHardwareDecodeEngine((HardwareDecodeEngine)hardware_decode_combo_box->currentData().toInt());
+	settings->SetHardwareDecoder(hw_decoder_combo_box->currentData().toString());
+}
+
+void SettingsDialog::UpdateHardwareDecodeEngineComboBox()
+{
+	hw_decoder_combo_box->setEnabled(settings->GetDecoder() == Decoder::Ffmpeg);
 }
 
 void SettingsDialog::UpdateBitratePlaceholder()
@@ -284,8 +368,11 @@ void SettingsDialog::UpdateRegisteredHosts()
 	auto hosts = settings->GetRegisteredHosts();
 	for(const auto &host : hosts)
 	{
-		auto item = new QListWidgetItem(QString("%1 (%2)").arg(host.GetPS4MAC().ToString(), host.GetPS4Nickname()));
-		item->setData(Qt::UserRole, QVariant::fromValue(host.GetPS4MAC()));
+		auto item = new QListWidgetItem(QString("%1 (%2, %3)")
+				.arg(host.GetServerMAC().ToString(),
+					chiaki_target_is_ps5(host.GetTarget()) ? "PS5" : "PS4",
+					host.GetServerNickname()));
+		item->setData(Qt::UserRole, QVariant::fromValue(host.GetServerMAC()));
 		registered_hosts_list_widget->addItem(item);
 	}
 }

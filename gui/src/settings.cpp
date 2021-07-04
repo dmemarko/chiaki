@@ -1,27 +1,78 @@
-/*
- * This file is part of Chiaki.
- *
- * Chiaki is free software: you can redistribute it and/or modify
- * it under the terms of the GNU General Public License as published by
- * the Free Software Foundation, either version 3 of the License, or
- * (at your option) any later version.
- *
- * Chiaki is distributed in the hope that it will be useful,
- * but WITHOUT ANY WARRANTY; without even the implied warranty of
- * MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
- * GNU General Public License for more details.
- *
- * You should have received a copy of the GNU General Public License
- * along with Chiaki.  If not, see <https://www.gnu.org/licenses/>.
- */
+// SPDX-License-Identifier: LicenseRef-AGPL-3.0-only-OpenSSL
 
 #include <settings.h>
 #include <QKeySequence>
 
-#define SETTINGS_VERSION 1
+#include <chiaki/config.h>
+
+#define SETTINGS_VERSION 2
+
+static void MigrateSettingsTo2(QSettings *settings)
+{
+	QList<QMap<QString, QVariant>> hosts;
+	int count = settings->beginReadArray("registered_hosts");
+	for(int i=0; i<count; i++)
+	{
+		settings->setArrayIndex(i);
+		QMap<QString, QVariant> host;
+		for(QString k : settings->allKeys())
+			host[k] = settings->value(k);
+		hosts.append(host);
+	}
+	settings->endArray();
+	settings->remove("registered_hosts");
+	settings->beginWriteArray("registered_hosts");
+	int i=0;
+	for(const auto &host : hosts)
+	{
+		settings->setArrayIndex(i);
+		settings->setValue("target", (int)CHIAKI_TARGET_PS4_10);
+		for(auto it = host.constBegin(); it != host.constEnd(); it++)
+		{
+			QString k = it.key();
+			if(k == "ps4_nickname")
+				k = "server_nickname";
+			else if(k == "ps4_mac")
+				k = "server_mac";
+			settings->setValue(k, it.value());
+		}
+		i++;
+	}
+	settings->endArray();
+	QString hw_decoder = settings->value("settings/hw_decode_engine").toString();
+	settings->remove("settings/hw_decode_engine");
+	if(hw_decoder != "none")
+		settings->setValue("settings/hw_decoder", hw_decoder);
+}
+
+static void MigrateSettings(QSettings *settings)
+{
+	int version_prev = settings->value("version", 0).toInt();
+	if(version_prev < 1)
+		return;
+	if(version_prev > SETTINGS_VERSION)
+	{
+		CHIAKI_LOGE(NULL, "Settings version %d is higher than application one (%d)", version_prev, SETTINGS_VERSION);
+		return;
+	}
+	while(version_prev < SETTINGS_VERSION)
+	{
+		version_prev++;
+		switch(version_prev)
+		{
+			case 2:
+				CHIAKI_LOGI(NULL, "Migrating settings to 2");
+				MigrateSettingsTo2(settings);
+				break;
+			default:
+				break;
+		}
+	}
+}
 
 Settings::Settings(QObject *parent) : QObject(parent)
 {
+	MigrateSettings(&settings);
 	manual_hosts_id_next = 0;
 	settings.setValue("version", SETTINGS_VERSION);
 	LoadRegisteredHosts();
@@ -37,10 +88,10 @@ uint32_t Settings::GetLogLevelMask()
 }
 
 static const QMap<ChiakiVideoResolutionPreset, QString> resolutions = {
-	{ CHIAKI_VIDEO_RESOLUTION_PRESET_360p, "360p"},
-	{ CHIAKI_VIDEO_RESOLUTION_PRESET_540p, "540p"},
-	{ CHIAKI_VIDEO_RESOLUTION_PRESET_720p, "720p"},
-	{ CHIAKI_VIDEO_RESOLUTION_PRESET_1080p, "1080p"}
+	{ CHIAKI_VIDEO_RESOLUTION_PRESET_360p, "360p" },
+	{ CHIAKI_VIDEO_RESOLUTION_PRESET_540p, "540p" },
+	{ CHIAKI_VIDEO_RESOLUTION_PRESET_720p, "720p" },
+	{ CHIAKI_VIDEO_RESOLUTION_PRESET_1080p, "1080p" }
 };
 
 static const ChiakiVideoResolutionPreset resolution_default = CHIAKI_VIDEO_RESOLUTION_PRESET_720p;
@@ -84,6 +135,24 @@ void Settings::SetBitrate(unsigned int bitrate)
 	settings.setValue("settings/bitrate", bitrate);
 }
 
+static const QMap<ChiakiCodec, QString> codecs = {
+	{ CHIAKI_CODEC_H264, "h264" },
+	{ CHIAKI_CODEC_H265, "h265" }
+};
+
+static const ChiakiCodec codec_default = CHIAKI_CODEC_H265;
+
+ChiakiCodec Settings::GetCodec() const
+{
+	auto v = settings.value("settings/codec", codecs[codec_default]).toString();
+	return codecs.key(v, codec_default);
+}
+
+void Settings::SetCodec(ChiakiCodec codec)
+{
+	settings.setValue("settings/codec", codecs[codec]);
+}
+
 unsigned int Settings::GetAudioBufferSizeDefault() const
 {
 	return 9600;
@@ -94,30 +163,52 @@ unsigned int Settings::GetAudioBufferSizeRaw() const
 	return settings.value("settings/audio_buffer_size", 0).toUInt();
 }
 
-static const QMap<HardwareDecodeEngine, QString> hw_decode_engine_values = {
-	{ HW_DECODE_NONE, "none" },
-	{ HW_DECODE_VAAPI, "vaapi" },
-	{ HW_DECODE_VDPAU, "vdpau" },
-	{ HW_DECODE_VIDEOTOOLBOX, "videotoolbox" }
+static const QMap<Decoder, QString> decoder_values = {
+	{ Decoder::Ffmpeg, "ffmpeg" },
+	{ Decoder::Pi, "pi" }
 };
 
-static const HardwareDecodeEngine hw_decode_engine_default = HW_DECODE_NONE;
+static const Decoder decoder_default = Decoder::Pi;
 
-HardwareDecodeEngine Settings::GetHardwareDecodeEngine() const
+Decoder Settings::GetDecoder() const
 {
-	auto v = settings.value("settings/hw_decode_engine", hw_decode_engine_values[hw_decode_engine_default]).toString();
-	return hw_decode_engine_values.key(v, hw_decode_engine_default);
+#if CHIAKI_LIB_ENABLE_PI_DECODER
+	auto v = settings.value("settings/decoder", decoder_values[decoder_default]).toString();
+	return decoder_values.key(v, decoder_default);
+#else
+	return Decoder::Ffmpeg;
+#endif
 }
 
-void Settings::SetHardwareDecodeEngine(HardwareDecodeEngine engine)
+void Settings::SetDecoder(Decoder decoder)
 {
-	settings.setValue("settings/hw_decode_engine", hw_decode_engine_values[engine]);
+	settings.setValue("settings/decoder", decoder_values[decoder]);
+}
+
+QString Settings::GetHardwareDecoder() const
+{
+	return settings.value("settings/hw_decoder").toString();
+}
+
+void Settings::SetHardwareDecoder(const QString &hw_decoder)
+{
+	settings.setValue("settings/hw_decoder", hw_decoder);
 }
 
 unsigned int Settings::GetAudioBufferSize() const
 {
 	unsigned int v = GetAudioBufferSizeRaw();
 	return v ? v : GetAudioBufferSizeDefault();
+}
+
+QString Settings::GetAudioOutDevice() const
+{
+	return settings.value("settings/audio_out_device").toString();
+}
+
+void Settings::SetAudioOutDevice(QString device_name)
+{
+	settings.setValue("settings/audio_out_device", device_name);
 }
 
 void Settings::SetAudioBufferSize(unsigned int size)
@@ -127,12 +218,32 @@ void Settings::SetAudioBufferSize(unsigned int size)
 
 ChiakiConnectVideoProfile Settings::GetVideoProfile()
 {
-	ChiakiConnectVideoProfile profile;
+	ChiakiConnectVideoProfile profile = {};
 	chiaki_connect_video_profile_preset(&profile, GetResolution(), GetFPS());
 	unsigned int bitrate = GetBitrate();
 	if(bitrate)
 		profile.bitrate = bitrate;
+	profile.codec = GetCodec();
 	return profile;
+}
+
+static const QMap<DisconnectAction, QString> disconnect_action_values = {
+	{ DisconnectAction::Ask, "ask" },
+	{ DisconnectAction::AlwaysNothing, "nothing" },
+	{ DisconnectAction::AlwaysSleep, "sleep" }
+};
+
+static const DisconnectAction disconnect_action_default = DisconnectAction::Ask;
+
+DisconnectAction Settings::GetDisconnectAction()
+{
+	auto v = settings.value("settings/disconnect_action", disconnect_action_values[disconnect_action_default]).toString();
+	return disconnect_action_values.key(v, disconnect_action_default);
+}
+
+void Settings::SetDisconnectAction(DisconnectAction action)
+{
+	settings.setValue("settings/disconnect_action", disconnect_action_values[action]);
 }
 
 void Settings::LoadRegisteredHosts()
@@ -144,7 +255,7 @@ void Settings::LoadRegisteredHosts()
 	{
 		settings.setArrayIndex(i);
 		RegisteredHost host = RegisteredHost::LoadFromSettings(&settings);
-		registered_hosts[host.GetPS4MAC()] = host;
+		registered_hosts[host.GetServerMAC()] = host;
 	}
 	settings.endArray();
 }
@@ -164,7 +275,7 @@ void Settings::SaveRegisteredHosts()
 
 void Settings::AddRegisteredHost(const RegisteredHost &host)
 {
-	registered_hosts[host.GetPS4MAC()] = host;
+	registered_hosts[host.GetServerMAC()] = host;
 	SaveRegisteredHosts();
 	emit RegisteredHostsUpdated();
 }
@@ -190,7 +301,7 @@ void Settings::LoadManualHosts()
 		if(host.GetID() < 0)
 			continue;
 		if(manual_hosts_id_next <= host.GetID())
-			manual_hosts_id_next = host.GetID();
+			manual_hosts_id_next = host.GetID() + 1;
 		manual_hosts[host.GetID()] = host;
 	}
 	settings.endArray();

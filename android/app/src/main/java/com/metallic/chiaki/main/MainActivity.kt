@@ -1,19 +1,4 @@
-/*
- * This file is part of Chiaki.
- *
- * Chiaki is free software: you can redistribute it and/or modify
- * it under the terms of the GNU General Public License as published by
- * the Free Software Foundation, either version 3 of the License, or
- * (at your option) any later version.
- *
- * Chiaki is distributed in the hope that it will be useful,
- * but WITHOUT ANY WARRANTY; without even the implied warranty of
- * MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
- * GNU General Public License for more details.
- *
- * You should have received a copy of the GNU General Public License
- * along with Chiaki.  If not, see <https://www.gnu.org/licenses/>.
- */
+// SPDX-License-Identifier: LicenseRef-AGPL-3.0-only-OpenSSL
 
 package com.metallic.chiaki.main
 
@@ -32,52 +17,54 @@ import com.metallic.chiaki.R
 import com.metallic.chiaki.common.*
 import com.metallic.chiaki.common.ext.putRevealExtra
 import com.metallic.chiaki.common.ext.viewModelFactory
+import com.metallic.chiaki.databinding.ActivityMainBinding
 import com.metallic.chiaki.lib.ConnectInfo
 import com.metallic.chiaki.lib.DiscoveryHost
 import com.metallic.chiaki.manualconsole.EditManualConsoleActivity
 import com.metallic.chiaki.regist.RegistActivity
 import com.metallic.chiaki.settings.SettingsActivity
 import com.metallic.chiaki.stream.StreamActivity
-import kotlinx.android.synthetic.main.activity_main.*
 
 class MainActivity : AppCompatActivity()
 {
 	private lateinit var viewModel: MainViewModel
 
+	private lateinit var binding: ActivityMainBinding
 	private var discoveryMenuItem: MenuItem? = null
 
 	override fun onCreate(savedInstanceState: Bundle?)
 	{
 		super.onCreate(savedInstanceState)
-		setContentView(R.layout.activity_main)
+		binding = ActivityMainBinding.inflate(layoutInflater)
+		setContentView(binding.root)
 
 		title = ""
-		setSupportActionBar(toolbar)
+		setSupportActionBar(binding.toolbar)
 
-		floatingActionButton.setOnClickListener {
-			expandFloatingActionButton(!floatingActionButton.isExpanded)
+		binding.floatingActionButton.setOnClickListener {
+			expandFloatingActionButton(!binding.floatingActionButton.isExpanded)
 		}
-		floatingActionButtonDialBackground.setOnClickListener {
+		binding.floatingActionButtonDialBackground.setOnClickListener {
 			expandFloatingActionButton(false)
 		}
 
-		addManualButton.setOnClickListener { addManualConsole() }
-		addManualLabelButton.setOnClickListener { addManualConsole() }
+		binding.addManualButton.setOnClickListener { addManualConsole() }
+		binding.addManualLabelButton.setOnClickListener { addManualConsole() }
 
-		registerButton.setOnClickListener { showRegistration() }
-		registerLabelButton.setOnClickListener { showRegistration() }
+		binding.registerButton.setOnClickListener { showRegistration() }
+		binding.registerLabelButton.setOnClickListener { showRegistration() }
 
 		viewModel = ViewModelProvider(this, viewModelFactory { MainViewModel(getDatabase(this), Preferences(this)) })
 			.get(MainViewModel::class.java)
 
 		val recyclerViewAdapter = DisplayHostRecyclerViewAdapter(this::hostTriggered, this::wakeupHost, this::editHost, this::deleteHost)
-		hostsRecyclerView.adapter = recyclerViewAdapter
-		hostsRecyclerView.layoutManager = LinearLayoutManager(this)
+		binding.hostsRecyclerView.adapter = recyclerViewAdapter
+		binding.hostsRecyclerView.layoutManager = LinearLayoutManager(this)
 		viewModel.displayHosts.observe(this, Observer {
-			val top = hostsRecyclerView.computeVerticalScrollOffset() == 0
+			val top = binding.hostsRecyclerView.computeVerticalScrollOffset() == 0
 			recyclerViewAdapter.hosts = it
 			if(top)
-				hostsRecyclerView.scrollToPosition(0)
+				binding.hostsRecyclerView.scrollToPosition(0)
 			updateEmptyInfo()
 		})
 
@@ -91,19 +78,19 @@ class MainActivity : AppCompatActivity()
 	{
 		if(viewModel.displayHosts.value?.isEmpty() ?: true)
 		{
-			emptyInfoLayout.visibility = View.VISIBLE
+			binding.emptyInfoLayout.visibility = View.VISIBLE
 			val discoveryActive = viewModel.discoveryActive.value ?: false
-			emptyInfoImageView.setImageResource(if(discoveryActive) R.drawable.ic_discover_on else R.drawable.ic_discover_off)
-			emptyInfoTextView.setText(if(discoveryActive) R.string.display_hosts_empty_discovery_on_info else R.string.display_hosts_empty_discovery_off_info)
+			binding.emptyInfoImageView.setImageResource(if(discoveryActive) R.drawable.ic_discover_on else R.drawable.ic_discover_off)
+			binding.emptyInfoTextView.setText(if(discoveryActive) R.string.display_hosts_empty_discovery_on_info else R.string.display_hosts_empty_discovery_off_info)
 		}
 		else
-			emptyInfoLayout.visibility = View.GONE
+			binding.emptyInfoLayout.visibility = View.GONE
 	}
 
 	private fun expandFloatingActionButton(expand: Boolean)
 	{
-		floatingActionButton.isExpanded = expand
-		floatingActionButton.isActivated = floatingActionButton.isExpanded
+		binding.floatingActionButton.isExpanded = expand
+		binding.floatingActionButton.isActivated = binding.floatingActionButton.isExpanded
 	}
 
 	override fun onStart()
@@ -120,7 +107,7 @@ class MainActivity : AppCompatActivity()
 
 	override fun onBackPressed()
 	{
-		if(floatingActionButton.isExpanded)
+		if(binding.floatingActionButton.isExpanded)
 		{
 			expandFloatingActionButton(false)
 			return
@@ -166,7 +153,7 @@ class MainActivity : AppCompatActivity()
 	private fun addManualConsole()
 	{
 		Intent(this, EditManualConsoleActivity::class.java).also {
-			it.putRevealExtra(addManualButton, rootLayout)
+			it.putRevealExtra(binding.addManualButton, binding.rootLayout)
 			startActivity(it, ActivityOptions.makeSceneTransitionAnimation(this).toBundle())
 		}
 	}
@@ -174,7 +161,7 @@ class MainActivity : AppCompatActivity()
 	private fun showRegistration()
 	{
 		Intent(this, RegistActivity::class.java).also {
-			it.putRevealExtra(registerButton, rootLayout)
+			it.putRevealExtra(binding.registerButton, binding.rootLayout)
 			startActivity(it, ActivityOptions.makeSceneTransitionAnimation(this).toBundle())
 		}
 	}
@@ -185,7 +172,7 @@ class MainActivity : AppCompatActivity()
 		if(registeredHost != null)
 		{
 			fun connect() {
-				val connectInfo = ConnectInfo(host.host, registeredHost.rpRegistKey, registeredHost.rpKey, Preferences(this).videoProfile)
+				val connectInfo = ConnectInfo(host.isPS5, host.host, registeredHost.rpRegistKey, registeredHost.rpKey, Preferences(this).videoProfile)
 				Intent(this, StreamActivity::class.java).let {
 					it.putExtra(StreamActivity.EXTRA_CONNECT_INFO, connectInfo)
 					startActivity(it)
@@ -224,7 +211,7 @@ class MainActivity : AppCompatActivity()
 	private fun wakeupHost(host: DisplayHost)
 	{
 		val registeredHost = host.registeredHost ?: return
-		viewModel.discoveryManager.sendWakeup(host.host, registeredHost.rpRegistKey)
+		viewModel.discoveryManager.sendWakeup(host.host, registeredHost.rpRegistKey, registeredHost.target.isPS5)
 	}
 
 	private fun editHost(host: DisplayHost)

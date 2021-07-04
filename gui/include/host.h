@@ -1,19 +1,4 @@
-/*
- * This file is part of Chiaki.
- *
- * Chiaki is free software: you can redistribute it and/or modify
- * it under the terms of the GNU General Public License as published by
- * the Free Software Foundation, either version 3 of the License, or
- * (at your option) any later version.
- *
- * Chiaki is distributed in the hope that it will be useful,
- * but WITHOUT ANY WARRANTY; without even the implied warranty of
- * MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
- * GNU General Public License for more details.
- *
- * You should have received a copy of the GNU General Public License
- * along with Chiaki.  If not, see <https://www.gnu.org/licenses/>.
- */
+// SPDX-License-Identifier: LicenseRef-AGPL-3.0-only-OpenSSL
 
 #ifndef CHIAKI_HOST_H
 #define CHIAKI_HOST_H
@@ -53,12 +38,13 @@ static bool operator<(const HostMAC &a, const HostMAC &b)	{ return a.GetValue() 
 class RegisteredHost
 {
 	private:
+		ChiakiTarget target;
 		QString ap_ssid;
 		QString ap_bssid;
 		QString ap_key;
 		QString ap_name;
-		HostMAC ps4_mac;
-		QString ps4_nickname;
+		HostMAC server_mac;
+		QString server_nickname;
 		char rp_regist_key[CHIAKI_SESSION_AUTH_SIZE];
 		uint32_t rp_key_type;
 		uint8_t rp_key[0x10];
@@ -69,8 +55,9 @@ class RegisteredHost
 
 		RegisteredHost(const ChiakiRegisteredHost &chiaki_host);
 
-		const HostMAC &GetPS4MAC() const 		{ return ps4_mac; }
-		const QString &GetPS4Nickname() const	{ return ps4_nickname; }
+		ChiakiTarget GetTarget() const			{ return target; }
+		const HostMAC &GetServerMAC() const 	{ return server_mac; }
+		const QString &GetServerNickname() const	{ return server_nickname; }
 		const QByteArray GetRPRegistKey() const	{ return QByteArray(rp_regist_key, sizeof(rp_regist_key)); }
 		const QByteArray GetRPKey() const		{ return QByteArray((const char *)rp_key, sizeof(rp_key)); }
 
@@ -96,7 +83,7 @@ class ManualHost
 		bool GetRegistered() const	{ return registered; }
 		HostMAC GetMAC() const 		{ return registered_mac; }
 
-		void Register(const RegisteredHost &registered_host) { this->registered = true; this->registered_mac = registered_host.GetPS4MAC(); }
+		void Register(const RegisteredHost &registered_host) { this->registered = true; this->registered_mac = registered_host.GetServerMAC(); }
 
 		void SaveToSettings(QSettings *settings) const;
 		static ManualHost LoadFromSettings(QSettings *settings);

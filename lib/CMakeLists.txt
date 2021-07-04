@@ -21,6 +21,7 @@ set(HEADER_FILES
 		include/chiaki/video.h
 		include/chiaki/videoreceiver.h
 		include/chiaki/frameprocessor.h
+		include/chiaki/packetstats.h
 		include/chiaki/seqnum.h
 		include/chiaki/discovery.h
 		include/chiaki/congestioncontrol.h
@@ -34,7 +35,8 @@ set(HEADER_FILES
 		include/chiaki/time.h
 		include/chiaki/fec.h
 		include/chiaki/regist.h
-		include/chiaki/opusdecoder.h)
+		include/chiaki/opusdecoder.h
+		include/chiaki/orientation.h)
 
 set(SOURCE_FILES
 		src/common.c
@@ -59,6 +61,7 @@ set(SOURCE_FILES
 		src/audioreceiver.c
 		src/videoreceiver.c
 		src/frameprocessor.c
+		src/packetstats.c
 		src/discovery.c
 		src/congestioncontrol.c
 		src/stoppipe.c
@@ -69,12 +72,24 @@ set(SOURCE_FILES
 		src/controller.c
 		src/takionsendbuffer.c
 		src/time.c
-		src/fec
+		src/fec.c
 		src/regist.c
-		src/opusdecoder.c)
+		src/opusdecoder.c
+		src/orientation.c)
+
+if(CHIAKI_ENABLE_FFMPEG_DECODER)
+	list(APPEND HEADER_FILES include/chiaki/ffmpegdecoder.h)
+	list(APPEND SOURCE_FILES src/ffmpegdecoder.c)
+endif()
+set(CHIAKI_LIB_ENABLE_PI_DECODER "${CHIAKI_ENABLE_FFMPEG_DECODER}")
+
+if(CHIAKI_ENABLE_PI_DECODER)
+	list(APPEND HEADER_FILES include/chiaki/pidecoder.h)
+	list(APPEND SOURCE_FILES src/pidecoder.c)
+endif()
+set(CHIAKI_LIB_ENABLE_PI_DECODER "${CHIAKI_ENABLE_PI_DECODER}")
 
 add_subdirectory(protobuf)
-include_directories("${NANOPB_SOURCE_DIR}")
 set_source_files_properties(${CHIAKI_LIB_PROTO_SOURCE_FILES} ${CHIAKI_LIB_PROTO_HEADER_FILES} PROPERTIES GENERATED TRUE)
 include_directories("${CHIAKI_LIB_PROTO_INCLUDE_DIR}")
 
@@ -86,6 +101,10 @@ endif()
 add_library(chiaki-lib ${HEADER_FILES} ${SOURCE_FILES} ${CHIAKI_LIB_PROTO_SOURCE_FILES} ${CHIAKI_LIB_PROTO_HEADER_FILES})
 configure_file(config.h.in include/chiaki/config.h)
 target_include_directories(chiaki-lib PUBLIC "${CMAKE_CURRENT_BINARY_DIR}/include")
+
+if(CMAKE_C_COMPILER_ID STREQUAL GNU OR CMAKE_C_COMPILER_ID STREQUAL Clang)
+	target_compile_options(chiaki-lib PRIVATE -Wall)
+endif()
 
 add_dependencies(chiaki-lib chiaki-pb)
 set_target_properties(chiaki-lib PROPERTIES OUTPUT_NAME chiaki)
@@ -101,8 +120,10 @@ target_link_libraries(chiaki-lib Threads::Threads)
 
 if(CHIAKI_LIB_ENABLE_MBEDTLS)
 	# provided by mbedtls-static (mbedtls-devel)
-	# find_package(mbedcrypto REQUIRED)
-	target_link_libraries(chiaki-lib mbedtls mbedx509 mbedcrypto)
+	find_library(MBEDTLS mbedtls)
+	find_library(MBEDX509 mbedx509)
+	find_library(MBEDCRYPTO mbedcrypto)
+	target_link_libraries(chiaki-lib ${MBEDTLS} ${MBEDX509} ${MBEDCRYPTO})
 elseif(CHIAKI_LIB_OPENSSL_EXTERNAL_PROJECT)
 	target_link_libraries(chiaki-lib OpenSSL_Crypto)
 else()
@@ -111,13 +132,16 @@ else()
 	target_link_libraries(chiaki-lib OpenSSL::Crypto)
 endif()
 
-if(CHIAKI_ENABLE_SWITCH AND NOT CHIAKI_ENABLE_SWITCH_LINUX)
-	# to provides csrngGetRandomBytes
-	target_link_libraries(chiaki-lib nx)
+target_link_libraries(chiaki-lib Nanopb::nanopb)
+target_link_libraries(chiaki-lib Jerasure::Jerasure)
+
+if(CHIAKI_ENABLE_FFMPEG_DECODER)
+	target_link_libraries(chiaki-lib FFMPEG::avcodec FFMPEG::avutil)
 endif()
 
-target_link_libraries(chiaki-lib protobuf-nanopb-static)
-target_link_libraries(chiaki-lib jerasure)
+if(CHIAKI_ENABLE_PI_DECODER)
+	target_link_libraries(chiaki-lib ILClient::ILClient)
+endif()
 
 if(CHIAKI_LIB_ENABLE_OPUS)
 	target_link_libraries(chiaki-lib ${Opus_LIBRARIES})

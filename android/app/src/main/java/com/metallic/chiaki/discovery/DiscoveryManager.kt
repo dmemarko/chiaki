@@ -1,19 +1,4 @@
-/*
- * This file is part of Chiaki.
- *
- * Chiaki is free software: you can redistribute it and/or modify
- * it under the terms of the GNU General Public License as published by
- * the Free Software Foundation, either version 3 of the License, or
- * (at your option) any later version.
- *
- * Chiaki is distributed in the hope that it will be useful,
- * but WITHOUT ANY WARRANTY; without even the implied warranty of
- * MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
- * GNU General Public License for more details.
- *
- * You should have received a copy of the GNU General Public License
- * along with Chiaki.  If not, see <https://www.gnu.org/licenses/>.
- */
+// SPDX-License-Identifier: LicenseRef-AGPL-3.0-only-OpenSSL
 
 package com.metallic.chiaki.discovery
 
@@ -36,7 +21,7 @@ import java.nio.charset.Charset
 import java.nio.charset.StandardCharsets
 import java.util.concurrent.TimeUnit
 
-val DiscoveryHost.ps4Mac get() = this.hostId?.hexToByteArray()?.let {
+val DiscoveryHost.serverMac get() = this.hostId?.hexToByteArray()?.let {
 	if(it.size == MacAddress.LENGTH)
 		MacAddress(it)
 	else
@@ -107,14 +92,14 @@ class DiscoveryManager
 		disposable.dispose()
 	}
 
-	fun sendWakeup(host: String, registKey: ByteArray)
+	fun sendWakeup(host: String, registKey: ByteArray, ps5: Boolean)
 	{
 		val registKeyString = registKey.indexOfFirst { it == 0.toByte() }.let { end -> registKey.copyOfRange(0, if(end >= 0) end else registKey.size) }.toString(StandardCharsets.UTF_8)
 		val credential = try { registKeyString.toULong(16) } catch(e: NumberFormatException) {
 			Log.e("DiscoveryManager", "Failed to convert registKey to int", e)
 			return
 		}
-		DiscoveryService.wakeup(discoveryService, host, credential)
+		DiscoveryService.wakeup(discoveryService, host, credential, ps5)
 	}
 
 	private fun updateService()

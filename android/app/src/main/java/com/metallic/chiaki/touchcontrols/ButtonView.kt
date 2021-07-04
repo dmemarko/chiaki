@@ -1,19 +1,4 @@
-/*
- * This file is part of Chiaki.
- *
- * Chiaki is free software: you can redistribute it and/or modify
- * it under the terms of the GNU General Public License as published by
- * the Free Software Foundation, either version 3 of the License, or
- * (at your option) any later version.
- *
- * Chiaki is distributed in the hope that it will be useful,
- * but WITHOUT ANY WARRANTY; without even the implied warranty of
- * MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
- * GNU General Public License for more details.
- *
- * You should have received a copy of the GNU General Public License
- * along with Chiaki.  If not, see <https://www.gnu.org/licenses/>.
- */
+// SPDX-License-Identifier: LicenseRef-AGPL-3.0-only-OpenSSL
 
 package com.metallic.chiaki.touchcontrols
 
@@ -21,14 +6,19 @@ import android.content.Context
 import android.graphics.Canvas
 import android.graphics.drawable.Drawable
 import android.util.AttributeSet
+import android.util.Log
 import android.view.MotionEvent
 import android.view.View
+import android.view.ViewGroup
+import androidx.core.view.children
 import com.metallic.chiaki.R
 
 class ButtonView @JvmOverloads constructor(
 	context: Context, attrs: AttributeSet? = null, defStyleAttr: Int = 0
 ) : View(context, attrs, defStyleAttr)
 {
+	private val haptics = ButtonHaptics(context)
+
 	var buttonPressed = false
 		private set(value)
 		{
@@ -36,6 +26,8 @@ class ButtonView @JvmOverloads constructor(
 			field = value
 			if(diff)
 			{
+				if(value)
+					haptics.trigger()
 				invalidate()
 				buttonPressedCallback?.let { it(field) }
 			}
@@ -61,16 +53,39 @@ class ButtonView @JvmOverloads constructor(
 	{
 		super.onDraw(canvas)
 		val drawable = if(buttonPressed) drawablePressed else drawableIdle
-		drawable?.setBounds(0, 0, width, height)
+		drawable?.setBounds(paddingLeft, paddingTop, width - paddingRight, height - paddingBottom)
 		drawable?.draw(canvas)
+	}
+
+	/**
+	 * If this button overlaps with others in the same layout,
+	 * let the one whose center is closest to the touch handle it.
+	 */
+	private fun bestFittingTouchView(x: Float, y: Float): View
+	{
+		val loc = locationOnScreen + Vector(x, y)
+		return (parent as? ViewGroup)?.children?.filter {
+			it is ButtonView
+		}?.filter {
+			val pos = it.locationOnScreen
+			loc.x >= pos.x && loc.x < pos.x + it.width && loc.y >= pos.y && loc.y < pos.y + it.height
+		}?.sortedBy {
+			(loc - (it.locationOnScreen + Vector(it.width.toFloat(), it.height.toFloat()) * 0.5f)).lengthSq
+		}?.firstOrNull() ?: this
 	}
 
 	override fun onTouchEvent(event: MotionEvent): Boolean
 	{
-		when(event.action)
+		when(event.actionMasked)
 		{
-			MotionEvent.ACTION_DOWN -> buttonPressed = true
-			MotionEvent.ACTION_UP -> buttonPressed = false
+			MotionEvent.ACTION_DOWN, MotionEvent.ACTION_POINTER_DOWN -> {
+				if(bestFittingTouchView(event.getX(event.actionIndex), event.getY(event.actionIndex)) != this)
+					return false
+				buttonPressed = true
+			}
+			MotionEvent.ACTION_UP, MotionEvent.ACTION_POINTER_UP -> {
+				buttonPressed = false
+			}
 		}
 		return true
 	}

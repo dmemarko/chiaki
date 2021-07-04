@@ -1,19 +1,4 @@
-/*
- * This file is part of Chiaki.
- *
- * Chiaki is free software: you can redistribute it and/or modify
- * it under the terms of the GNU General Public License as published by
- * the Free Software Foundation, either version 3 of the License, or
- * (at your option) any later version.
- *
- * Chiaki is distributed in the hope that it will be useful,
- * but WITHOUT ANY WARRANTY; without even the implied warranty of
- * MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
- * GNU General Public License for more details.
- *
- * You should have received a copy of the GNU General Public License
- * along with Chiaki.  If not, see <https://www.gnu.org/licenses/>.
- */
+// SPDX-License-Identifier: LicenseRef-AGPL-3.0-only-OpenSSL
 
 #include <serveritemwidget.h>
 #include <servericonwidget.h>
@@ -85,13 +70,14 @@ void ServerItemWidget::Update(const DisplayServer &display_server)
 	delete_action->setEnabled(!display_server.discovered);
 	wake_action->setEnabled(display_server.registered);
 
-	icon_widget->SetState(display_server.discovered ? display_server.discovery_host.state : CHIAKI_DISCOVERY_HOST_STATE_UNKNOWN);
+	icon_widget->SetState(display_server.IsPS5(),
+			display_server.discovered ? display_server.discovery_host.state : CHIAKI_DISCOVERY_HOST_STATE_UNKNOWN);
 
 	QString top_text = "";
 
 	if(display_server.discovered || display_server.registered)
 	{
-		top_text += (display_server.discovered ? display_server.discovery_host.host_name : display_server.registered_host.GetPS4Nickname()) + "\n";
+		top_text += (display_server.discovered ? display_server.discovery_host.host_name : display_server.registered_host.GetServerNickname()) + "\n";
 	}
 
 	top_text += tr("Address: %1").arg(display_server.GetHostAddr());
@@ -99,7 +85,7 @@ void ServerItemWidget::Update(const DisplayServer &display_server)
 	if(display_server.discovered || display_server.registered)
 	{
 		top_text += "\n" + tr("ID: %1 (%2)").arg(
-				display_server.discovered ? display_server.discovery_host.GetHostMAC().ToString() : display_server.registered_host.GetPS4MAC().ToString(),
+				display_server.discovered ? display_server.discovery_host.GetHostMAC().ToString() : display_server.registered_host.GetServerMAC().ToString(),
 				display_server.registered ? tr("registered") : tr("unregistered"));
 	}
 

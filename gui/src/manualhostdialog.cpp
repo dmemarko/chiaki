@@ -1,19 +1,4 @@
-/*
- * This file is part of Chiaki.
- *
- * Chiaki is free software: you can redistribute it and/or modify
- * it under the terms of the GNU General Public License as published by
- * the Free Software Foundation, either version 3 of the License, or
- * (at your option) any later version.
- *
- * Chiaki is distributed in the hope that it will be useful,
- * but WITHOUT ANY WARRANTY; without even the implied warranty of
- * MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
- * GNU General Public License for more details.
- *
- * You should have received a copy of the GNU General Public License
- * along with Chiaki.  If not, see <https://www.gnu.org/licenses/>.
- */
+// SPDX-License-Identifier: LicenseRef-AGPL-3.0-only-OpenSSL
 
 #include <manualhostdialog.h>
 #include <host.h>
@@ -53,7 +38,7 @@ ManualHostDialog::ManualHostDialog(Settings *settings, int id, QWidget *parent)
 	registered_host_combo_box->addItem(tr("Register on first Connection"));
 	auto registered_hosts = settings->GetRegisteredHosts();
 	for(const auto &registered_host : registered_hosts)
-		registered_host_combo_box->addItem(QString("%1 (%2)").arg(registered_host.GetPS4MAC().ToString(), registered_host.GetPS4Nickname()), QVariant::fromValue(registered_host.GetPS4MAC()));
+		registered_host_combo_box->addItem(QString("%1 (%2)").arg(registered_host.GetServerMAC().ToString(), registered_host.GetServerNickname()), QVariant::fromValue(registered_host.GetServerMAC()));
 	form_layout->addRow(tr("Registered Console:"), registered_host_combo_box);
 
 	button_box = new QDialogButtonBox(QDialogButtonBox::Save | QDialogButtonBox::Discard, this);

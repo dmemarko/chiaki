@@ -1,34 +1,25 @@
-/*
- * This file is part of Chiaki.
- *
- * Chiaki is free software: you can redistribute it and/or modify
- * it under the terms of the GNU General Public License as published by
- * the Free Software Foundation, either version 3 of the License, or
- * (at your option) any later version.
- *
- * Chiaki is distributed in the hope that it will be useful,
- * but WITHOUT ANY WARRANTY; without even the implied warranty of
- * MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
- * GNU General Public License for more details.
- *
- * You should have received a copy of the GNU General Public License
- * along with Chiaki.  If not, see <https://www.gnu.org/licenses/>.
- */
+// SPDX-License-Identifier: LicenseRef-AGPL-3.0-only-OpenSSL
 
 #ifndef CHIAKI_STREAMSESSION_H
 #define CHIAKI_STREAMSESSION_H
 
 #include <chiaki/session.h>
 #include <chiaki/opusdecoder.h>
+#include <chiaki/ffmpegdecoder.h>
+
+#if CHIAKI_LIB_ENABLE_PI_DECODER
+#include <chiaki/pidecoder.h>
+#endif
 
 #if CHIAKI_GUI_ENABLE_SETSU
 #include <setsu.h>
+#include <chiaki/orientation.h>
 #endif
 
-#include "videodecoder.h"
 #include "exception.h"
 #include "sessionlog.h"
 #include "controllermanager.h"
+#include "settings.h"
 
 #include <QObject>
 #include <QImage>
@@ -48,17 +39,23 @@ class ChiakiException: public Exception
 
 struct StreamSessionConnectInfo
 {
+	Settings *settings;
 	QMap<Qt::Key, int> key_map;
-	HardwareDecodeEngine hw_decode_engine;
+	Decoder decoder;
+	QString hw_decoder;
+	QString audio_out_device;
 	uint32_t log_level_mask;
 	QString log_file;
+	ChiakiTarget target;
 	QString host;
 	QByteArray regist_key;
 	QByteArray morning;
 	ChiakiConnectVideoProfile video_profile;
 	unsigned int audio_buffer_size;
+	bool fullscreen;
+	bool enable_keyboard;
 
-	StreamSessionConnectInfo(Settings *settings, QString host, QByteArray regist_key, QByteArray morning);
+	StreamSessionConnectInfo(Settings *settings, ChiakiTarget target, QString host, QByteArray regist_key, QByteArray morning, bool fullscreen);
 };
 
 class StreamSession : public QObject
@@ -71,18 +68,27 @@ class StreamSession : public QObject
 		SessionLog log;
 		ChiakiSession session;
 		ChiakiOpusDecoder opus_decoder;
+		bool connected;
 
-		Controller *controller;
+		QHash<int, Controller *> controllers;
 #if CHIAKI_GUI_ENABLE_SETSU
 		Setsu *setsu;
 		QMap<QPair<QString, SetsuTrackingId>, uint8_t> setsu_ids;
 		ChiakiControllerState setsu_state;
+		SetsuDevice *setsu_motion_device;
+		ChiakiOrientationTracker orient_tracker;
+		bool orient_dirty;
 #endif
 
 		ChiakiControllerState keyboard_state;
 
-		VideoDecoder video_decoder;
+		ChiakiFfmpegDecoder *ffmpeg_decoder;
+		void TriggerFfmpegFrameAvailable();
+#if CHIAKI_LIB_ENABLE_PI_DECODER
+		ChiakiPiDecoder *pi_decoder;
+#endif
 
+		QAudioDeviceInfo audio_out_device_info;
 		unsigned int audio_buffer_size;
 		QAudioOutput *audio_output;
 		QIODevice *audio_io;
@@ -90,32 +96,38 @@ class StreamSession : public QObject
 		QMap<Qt::Key, int> key_map;
 
 		void PushAudioFrame(int16_t *buf, size_t samples_count);
-		void PushVideoSample(uint8_t *buf, size_t buf_size);
-		void Event(ChiakiEvent *event);
 #if CHIAKI_GUI_ENABLE_SETSU
 		void HandleSetsuEvent(SetsuEvent *event);
 #endif
 
 	private slots:
 		void InitAudio(unsigned int channels, unsigned int rate);
+		void Event(ChiakiEvent *event);
 
 	public:
 		explicit StreamSession(const StreamSessionConnectInfo &connect_info, QObject *parent = nullptr);
 		~StreamSession();
 
+		bool IsConnected()	{ return connected; }
+
 		void Start();
 		void Stop();
+		void GoToBed();
 
 		void SetLoginPIN(const QString &pin);
 
-		Controller *GetController()	{ return controller; }
-		VideoDecoder *GetVideoDecoder()	{ return &video_decoder; }
+		ChiakiLog *GetChiakiLog()				{ return log.GetChiakiLog(); }
+		QList<Controller *> GetControllers()	{ return controllers.values(); }
+		ChiakiFfmpegDecoder *GetFfmpegDecoder()	{ return ffmpeg_decoder; }
+#if CHIAKI_LIB_ENABLE_PI_DECODER
+		ChiakiPiDecoder *GetPiDecoder()	{ return pi_decoder; }
+#endif
 
 		void HandleKeyboardEvent(QKeyEvent *event);
 		void HandleMouseEvent(QMouseEvent *event);
 
 	signals:
-		void CurrentImageUpdated();
+		void FfmpegFrameAvailable();
 		void SessionQuit(ChiakiQuitReason reason, const QString &reason_str);
 		void LoginPINRequested(bool incorrect);
 

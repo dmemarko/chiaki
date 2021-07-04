@@ -1,19 +1,4 @@
-/*
- * This file is part of Chiaki.
- *
- * Chiaki is free software: you can redistribute it and/or modify
- * it under the terms of the GNU General Public License as published by
- * the Free Software Foundation, either version 3 of the License, or
- * (at your option) any later version.
- *
- * Chiaki is distributed in the hope that it will be useful,
- * but WITHOUT ANY WARRANTY; without even the implied warranty of
- * MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
- * GNU General Public License for more details.
- *
- * You should have received a copy of the GNU General Public License
- * along with Chiaki.  If not, see <https://www.gnu.org/licenses/>.
- */
+// SPDX-License-Identifier: LicenseRef-AGPL-3.0-only-OpenSSL
 
 #include <chiaki/frameprocessor.h>
 #include <chiaki/fec.h>
@@ -28,24 +13,47 @@
 #include <arpa/inet.h>
 #endif
 
-#define UNIT_SLOTS_MAX 256
+CHIAKI_EXPORT void chiaki_stream_stats_reset(ChiakiStreamStats *stats)
+{
+	stats->frames = 0;
+	stats->bytes = 0;
+}
 
+CHIAKI_EXPORT void chiaki_stream_stats_frame(ChiakiStreamStats *stats, uint64_t size)
+{
+	stats->frames++;
+	stats->bytes += size;
+	//float br = (float)chiaki_stream_stats_bitrate(stats, 60) / 1000000.0f;
+	//CHIAKI_LOGD(NULL, "bitrate: %f", br);
+}
+
+CHIAKI_EXPORT uint64_t chiaki_stream_stats_bitrate(ChiakiStreamStats *stats, uint64_t framerate)
+{
+	return (stats->bytes * 8 * framerate) / stats->frames;
+}
+
+#define UNIT_SLOTS_MAX 256
 
 struct chiaki_frame_unit_t
 {
 	size_t data_size;
 };
 
-
 CHIAKI_EXPORT void chiaki_frame_processor_init(ChiakiFrameProcessor *frame_processor, ChiakiLog *log)
 {
 	frame_processor->log = log;
 	frame_processor->frame_buf = NULL;
 	frame_processor->frame_buf_size = 0;
+	frame_processor->buf_size_per_unit = 0;
+	frame_processor->buf_stride_per_unit = 0;
 	frame_processor->units_source_expected = 0;
 	frame_processor->units_fec_expected = 0;
+	frame_processor->units_source_received = 0;
+	frame_processor->units_fec_received = 0;
 	frame_processor->unit_slots = NULL;
 	frame_processor->unit_slots_size = 0;
+	frame_processor->flushed = true;
+	chiaki_stream_stats_reset(&frame_processor->stream_stats);
 }
 
 CHIAKI_EXPORT void chiaki_frame_processor_fini(ChiakiFrameProcessor *frame_processor)
@@ -62,6 +70,7 @@ CHIAKI_EXPORT ChiakiErrorCode chiaki_frame_processor_alloc_frame(ChiakiFrameProc
 		return CHIAKI_ERR_INVALID_DATA;
 	}
 
+	frame_processor->flushed = false;
 	frame_processor->units_source_expected = packet->units_in_frame_total - packet->units_in_frame_fec;
 	frame_processor->units_fec_expected = packet->units_in_frame_fec;
 	if(frame_processor->units_fec_expected < 1)
@@ -77,6 +86,7 @@ CHIAKI_EXPORT ChiakiErrorCode chiaki_frame_processor_alloc_frame(ChiakiFrameProc
 		}
 		frame_processor->buf_size_per_unit += ntohs(((chiaki_unaligned_uint16_t *)packet->data)[0]);
 	}
+	frame_processor->buf_stride_per_unit = ((frame_processor->buf_size_per_unit + 0xf) / 0x10) * 0x10;
 
 	if(frame_processor->buf_size_per_unit == 0)
 	{
@@ -116,9 +126,9 @@ CHIAKI_EXPORT ChiakiErrorCode chiaki_frame_processor_alloc_frame(ChiakiFrameProc
 	}
 	memset(frame_processor->unit_slots, 0, frame_processor->unit_slots_size * sizeof(ChiakiFrameUnit));
 
-	if(frame_processor->unit_slots_size > SIZE_MAX / frame_processor->buf_size_per_unit)
+	if(frame_processor->unit_slots_size > SIZE_MAX / frame_processor->buf_stride_per_unit)
 		return CHIAKI_ERR_OVERFLOW;
-	size_t frame_buf_size_required = frame_processor->unit_slots_size * frame_processor->buf_size_per_unit;
+	size_t frame_buf_size_required = frame_processor->unit_slots_size * frame_processor->buf_stride_per_unit;
 	if(frame_processor->frame_buf_size < frame_buf_size_required)
 	{
 		free(frame_processor->frame_buf);
@@ -142,7 +152,7 @@ CHIAKI_EXPORT ChiakiErrorCode chiaki_frame_processor_put_unit(ChiakiFrameProcess
 		CHIAKI_LOGE(frame_processor->log, "Packet's unit index is too high");
 		return CHIAKI_ERR_INVALID_DATA;
 	}
-	
+
 	if(!packet->data_size)
 	{
 		CHIAKI_LOGW(frame_processor->log, "Unit is empty");
@@ -154,7 +164,7 @@ CHIAKI_EXPORT ChiakiErrorCode chiaki_frame_processor_put_unit(ChiakiFrameProcess
 		CHIAKI_LOGW(frame_processor->log, "Unit is bigger than pre-calculated size!");
 		return CHIAKI_ERR_INVALID_DATA;
 	}
-	
+
 	ChiakiFrameUnit *unit = frame_processor->unit_slots + packet->unit_index;
 	if(unit->data_size)
 	{
@@ -163,9 +173,12 @@ CHIAKI_EXPORT ChiakiErrorCode chiaki_frame_processor_put_unit(ChiakiFrameProcess
 	}
 
 	unit->data_size = packet->data_size;
-	memcpy(frame_processor->frame_buf + packet->unit_index * frame_processor->buf_size_per_unit,
-			packet->data,
-			packet->data_size);
+	if(!frame_processor->flushed)
+	{
+		memcpy(frame_processor->frame_buf + packet->unit_index * frame_processor->buf_stride_per_unit,
+				packet->data,
+				packet->data_size);
+	}
 
 	if(packet->unit_index < frame_processor->units_source_expected)
 		frame_processor->units_source_received++;
@@ -173,6 +186,13 @@ CHIAKI_EXPORT ChiakiErrorCode chiaki_frame_processor_put_unit(ChiakiFrameProcess
 		frame_processor->units_fec_received++;
 
 	return CHIAKI_ERR_SUCCESS;
+}
+
+CHIAKI_EXPORT void chiaki_frame_processor_report_packet_stats(ChiakiFrameProcessor *frame_processor, ChiakiPacketStats *packet_stats)
+{
+	uint64_t received = frame_processor->units_source_received + frame_processor->units_fec_received;
+	uint64_t expected = frame_processor->units_source_expected + frame_processor->units_fec_expected;
+	chiaki_packet_stats_push_generation(packet_stats, received, expected - received);
 }
 
 static ChiakiErrorCode chiaki_frame_processor_fec(ChiakiFrameProcessor *frame_processor)
@@ -206,8 +226,9 @@ static ChiakiErrorCode chiaki_frame_processor_fec(ChiakiFrameProcessor *frame_pr
 	}
 	assert(erasure_index == erasures_count);
 
-	ChiakiErrorCode err = chiaki_fec_decode(frame_processor->frame_buf, frame_processor->buf_size_per_unit,
-			frame_processor->units_source_expected, frame_processor->units_fec_received,
+	ChiakiErrorCode err = chiaki_fec_decode(frame_processor->frame_buf,
+			frame_processor->buf_size_per_unit, frame_processor->buf_stride_per_unit,
+			frame_processor->units_source_expected, frame_processor->units_fec_expected,
 			erasures, erasures_count);
 
 	if(err != CHIAKI_ERR_SUCCESS)
@@ -224,7 +245,7 @@ static ChiakiErrorCode chiaki_frame_processor_fec(ChiakiFrameProcessor *frame_pr
 		for(size_t i=0; i<frame_processor->units_source_expected; i++)
 		{
 			ChiakiFrameUnit *slot = frame_processor->unit_slots + i;
-			uint8_t *buf_ptr = frame_processor->frame_buf + frame_processor->buf_size_per_unit * i;
+			uint8_t *buf_ptr = frame_processor->frame_buf + frame_processor->buf_stride_per_unit * i;
 			uint16_t padding = ntohs(*((chiaki_unaligned_uint16_t *)buf_ptr));
 			if(padding >= frame_processor->buf_size_per_unit)
 			{
@@ -243,8 +264,12 @@ static ChiakiErrorCode chiaki_frame_processor_fec(ChiakiFrameProcessor *frame_pr
 
 CHIAKI_EXPORT ChiakiFrameProcessorFlushResult chiaki_frame_processor_flush(ChiakiFrameProcessor *frame_processor, uint8_t **frame, size_t *frame_size)
 {
-	if(frame_processor->units_source_expected == 0)
+	if(frame_processor->units_source_expected == 0 || frame_processor->flushed)
 		return CHIAKI_FRAME_PROCESSOR_FLUSH_RESULT_FAILED;
+
+	//CHIAKI_LOGD(NULL, "source: %u, fec: %u",
+	//		frame_processor->units_source_expected,
+	//		frame_processor->units_fec_expected);
 
 	ChiakiFrameProcessorFlushResult result = CHIAKI_FRAME_PROCESSOR_FLUSH_RESULT_SUCCESS;
 	if(frame_processor->units_source_received < frame_processor->units_source_expected)
@@ -272,10 +297,12 @@ CHIAKI_EXPORT ChiakiFrameProcessorFlushResult chiaki_frame_processor_flush(Chiak
 			continue;
 		}
 		size_t part_size = unit->data_size - 2;
-		uint8_t *buf_ptr = frame_processor->frame_buf + i*frame_processor->buf_size_per_unit;
+		uint8_t *buf_ptr = frame_processor->frame_buf + i*frame_processor->buf_stride_per_unit;
 		memmove(frame_processor->frame_buf + cur, buf_ptr + 2, part_size);
 		cur += part_size;
 	}
+
+	chiaki_stream_stats_frame(&frame_processor->stream_stats, (uint64_t)cur);
 
 	*frame = frame_processor->frame_buf;
 	*frame_size = cur;

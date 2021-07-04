@@ -42,25 +42,45 @@ function(join OUTPUT GLUE)
 endfunction()
 
 function (_ffmpeg_find component headername)
+  if(TARGET "FFMPEG::${component}")
+    # already found before
+    return()
+  endif()
+
   # Try pkg-config first
   if(PKG_CONFIG_FOUND)
-    pkg_check_modules(FFMPEG_${component} lib${component} IMPORTED_TARGET)
+    if(CMAKE_VERSION VERSION_LESS "3.6")
+      pkg_check_modules(FFMPEG_${component} lib${component})
+    else()
+      pkg_check_modules(FFMPEG_${component} lib${component} IMPORTED_TARGET)
+    endif()
     if(FFMPEG_${component}_FOUND)
-      if(APPLE)
-        join(FFMPEG_LDFLAGS_STRING " " ${FFMPEG_${component}_LDFLAGS})
-        string(REGEX REPLACE "-Wl,-framework,([^ ]+)" "-framework \\1" FFMPEG_LDFLAGS_STRING_CLEAN ${FFMPEG_LDFLAGS_STRING})
-        string(REGEX MATCHALL "-framework [^ ]+" FFMPEG_FRAMEWORKS ${FFMPEG_LDFLAGS_STRING_CLEAN})
-        list(APPEND FFMPEG_${component}_LIBRARIES ${FFMPEG_FRAMEWORKS})
-        set_target_properties(PkgConfig::FFMPEG_${component} PROPERTIES
-                INTERFACE_LINK_DIRECTORIES "${FFMPEG_${component}_LIBRARY_DIRS}"
-                INTERFACE_LINK_LIBRARIES "${FFMPEG_${component}_LIBRARIES}"
-                INTERFACE_LINK_OPTIONS "")
-        message("set libs to \"${FFMPEG_${component}_LIBRARIES}\"")
-        message("set lib dirs to \"${FFMPEG_${component}_LIBRARY_DIRS}\"")
-        message("set lib otps not to \"${FFMPEG_${component}_LDFLAGS}\"")
+      if((TARGET PkgConfig::FFMPEG_${component}) AND (NOT CMAKE_VERSION VERSION_LESS "3.11.0"))
+        if(APPLE)
+          join(FFMPEG_LDFLAGS_STRING " " ${FFMPEG_${component}_LDFLAGS})
+          string(REGEX REPLACE "-Wl,-framework,([^ ]+)" "-framework \\1" FFMPEG_LDFLAGS_STRING_CLEAN ${FFMPEG_LDFLAGS_STRING})
+          string(REGEX MATCHALL "-framework [^ ]+" FFMPEG_FRAMEWORKS ${FFMPEG_LDFLAGS_STRING_CLEAN})
+          list(APPEND FFMPEG_${component}_LIBRARIES ${FFMPEG_FRAMEWORKS})
+          set_target_properties(PkgConfig::FFMPEG_${component} PROPERTIES
+                  INTERFACE_LINK_DIRECTORIES "${FFMPEG_${component}_LIBRARY_DIRS}"
+                  INTERFACE_LINK_LIBRARIES "${FFMPEG_${component}_LIBRARIES}"
+                  INTERFACE_LINK_OPTIONS "")
+          message("set libs to \"${FFMPEG_${component}_LIBRARIES}\"")
+          message("set lib dirs to \"${FFMPEG_${component}_LIBRARY_DIRS}\"")
+          message("set lib otps not to \"${FFMPEG_${component}_LDFLAGS}\"")
+        endif()
+        set_target_properties(PkgConfig::FFMPEG_${component} PROPERTIES IMPORTED_GLOBAL TRUE)
+        add_library(FFMPEG::${component} ALIAS PkgConfig::FFMPEG_${component})
+      else()
+        add_library("FFMPEG::${component}" INTERFACE IMPORTED)
+        if(CMAKE_VERSION VERSION_LESS "3.6")
+          link_directories("${FFMPEG_${component}_LIBRARY_DIRS}")
+        endif()
+        set_target_properties("FFMPEG::${component}" PROPERTIES
+          INTERFACE_LINK_DIRECTORIES "${FFMPEG_${component}_LIBRARY_DIRS}"
+          INTERFACE_INCLUDE_DIRECTORIES "${FFMPEG_${component}_INCLUDE_DIRS}"
+          INTERFACE_LINK_LIBRARIES "${FFMPEG_${component}_LIBRARIES}")
       endif()
-      set_target_properties(PkgConfig::FFMPEG_${component} PROPERTIES IMPORTED_GLOBAL TRUE)
-      add_library(FFMPEG::${component} ALIAS PkgConfig::FFMPEG_${component})
       return()
     endif()
   endif()
@@ -211,10 +231,14 @@ foreach (_ffmpeg_component IN LISTS FFMPEG_FIND_COMPONENTS)
       list(APPEND _ffmpeg_required_vars
               "FFMPEG_${_ffmpeg_component}_LIBRARIES")
     else()
-      set(FFMPEG_${_ffmpeg_component}_INCLUDE_DIRS
-        "${FFMPEG_${_ffmpeg_component}_INCLUDE_DIR}")
-      set(FFMPEG_${_ffmpeg_component}_LIBRARIES
-        "${FFMPEG_${_ffmpeg_component}_LIBRARY}")
+      if(NOT FFMPEG_${_ffmpeg_component}_INCLUDE_DIRS)
+        set(FFMPEG_${_ffmpeg_component}_INCLUDE_DIRS
+          "${FFMPEG_${_ffmpeg_component}_INCLUDE_DIR}")
+      endif()
+      if(NOT FFMPEG_${_ffmpeg_component}_LIBRARIES)
+        set(FFMPEG_${_ffmpeg_component}_LIBRARIES
+          "${FFMPEG_${_ffmpeg_component}_LIBRARY}")
+      endif()
       list(APPEND FFMPEG_INCLUDE_DIRS
         "${FFMPEG_${_ffmpeg_component}_INCLUDE_DIRS}")
       list(APPEND FFMPEG_LIBRARIES

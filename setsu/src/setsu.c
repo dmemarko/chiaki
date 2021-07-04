@@ -1,19 +1,4 @@
-/*
- * This file is part of Chiaki.
- *
- * Chiaki is free software: you can redistribute it and/or modify
- * it under the terms of the GNU General Public License as published by
- * the Free Software Foundation, either version 3 of the License, or
- * (at your option) any later version.
- *
- * Chiaki is distributed in the hope that it will be useful,
- * but WITHOUT ANY WARRANTY; without even the implied warranty of
- * MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
- * GNU General Public License for more details.
- *
- * You should have received a copy of the GNU General Public License
- * along with Chiaki.  If not, see <https://www.gnu.org/licenses/>.
- */
+// SPDX-License-Identifier: LicenseRef-AGPL-3.0-only-OpenSSL
 
 #include <setsu.h>
 
@@ -26,6 +11,7 @@
 #include <unistd.h>
 #include <fcntl.h>
 #include <errno.h>
+#include <math.h>
 
 #include <stdio.h>
 
@@ -37,9 +23,12 @@
 #define SETSU_LOG(...) do {} while(0)
 #endif
 
+#define DEG2RAD (2.0f * M_PI / 360.0f)
+
 typedef struct setsu_avail_device_t
 {
 	struct setsu_avail_device_t *next;
+	SetsuDeviceType type;
 	char *path;
 	bool connect_dirty; // whether the connect has not been sent as an event yet
 	bool disconnect_dirty; // whether the disconnect has not been sent as an event yet
@@ -51,27 +40,44 @@ typedef struct setsu_device_t
 {
 	struct setsu_device_t *next;
 	char *path;
+	SetsuDeviceType type;
 	int fd;
 	struct libevdev *evdev;
-	int min_x, min_y, max_x, max_y;
 
-	struct {
-		/* Saves the old tracking id that was just up-ed.
-		 * also for handling "atomic" up->down
-		 * i.e. when there is an up, then down with a different tracking id
-		 * in a single frame (before SYN_REPORT), this saves the old
-		 * tracking id that must be reported as up. */
-		int tracking_id_prev;
+	union
+	{
+		struct
+		{
+			int min_x, min_y, max_x, max_y;
 
-		int tracking_id;
-		int x, y;
-		bool downed;
-		bool pos_dirty;
-	} slots[SLOTS_COUNT];
-	unsigned int slot_cur;
+			struct
+			{
+				/* Saves the old tracking id that was just up-ed.
+				 * also for handling "atomic" up->down
+				 * i.e. when there is an up, then down with a different tracking id
+				 * in a single frame (before SYN_REPORT), this saves the old
+				 * tracking id that must be reported as up. */
+				int tracking_id_prev;
 
-	uint64_t buttons_prev;
-	uint64_t buttons_cur;
+				int tracking_id;
+				int x, y;
+				bool downed;
+				bool pos_dirty;
+			} slots[SLOTS_COUNT];
+			unsigned int slot_cur;
+			uint64_t buttons_prev;
+			uint64_t buttons_cur;
+		} touchpad;
+		struct
+		{
+			int accel_res_x, accel_res_y, accel_res_z;
+			int gyro_res_x, gyro_res_y, gyro_res_z;
+			int accel_x, accel_y, accel_z;
+			int gyro_x, gyro_y, gyro_z;
+			uint32_t timestamp;
+			bool dirty;
+		} motion;
+	};
 } SetsuDevice;
 
 struct setsu_t
@@ -146,8 +152,8 @@ static void scan_udev(Setsu *setsu)
 	if(udev_enumerate_add_match_subsystem(udev_enum, "input") < 0)
 		goto beach;
 
-	if(udev_enumerate_add_match_property(udev_enum, "ID_INPUT_TOUCHPAD", "1") < 0)
-		goto beach;
+	//if(udev_enumerate_add_match_property(udev_enum, "ID_INPUT_TOUCHPAD", "1") < 0)
+	//	goto beach;
 	
 	if(udev_enumerate_scan_devices(udev_enum) < 0)
 		goto beach;
@@ -168,16 +174,32 @@ beach:
 	udev_enumerate_unref(udev_enum);
 }
 
-static bool is_device_interesting(struct udev_device *dev)
+static bool is_device_interesting(struct udev_device *dev, SetsuDeviceType *type)
 {
 	static const uint32_t device_ids[] = {
 		// vendor id, model id
-		0x054c,       0x05c4, // DualShock 4 Gen 1 USB
-		0x054c,       0x09cc // DualShock 4 Gen 2 USB
+		0x054c,       0x05c4, // DualShock 4 Gen 1
+		0x054c,       0x09cc, // DualShock 4 Gen 2
+		0x54c,        0x0ce6 // DualSense
 	};
 
-	// Filter mouse-device (/dev/input/mouse*) away and only keep the evdev (/dev/input/event*) one: 
-	if(!udev_device_get_property_value(dev, "ID_INPUT_TOUCHPAD_INTEGRATION"))
+	const char *touchpad_str = udev_device_get_property_value(dev, "ID_INPUT_TOUCHPAD");
+	const char *accel_str = udev_device_get_property_value(dev, "ID_INPUT_ACCELEROMETER");
+	if(touchpad_str && !strcmp(touchpad_str, "1"))
+	{
+		// Filter mouse-device (/dev/input/mouse*) away and only keep the evdev (/dev/input/event*) one:
+		if(!udev_device_get_property_value(dev, "ID_INPUT_TOUCHPAD_INTEGRATION"))
+			return false;
+		*type = SETSU_DEVICE_TYPE_TOUCHPAD;
+	}
+	else if(accel_str && !strcmp(accel_str, "1"))
+	{
+		// Filter /dev/input/js* away and keep /dev/input/event*
+		if(!udev_device_get_property_value(dev, "ID_INPUT_WIDTH_MM"))
+			return false;
+		*type = SETSU_DEVICE_TYPE_MOTION;
+	}
+	else
 		return false;
 
 	uint32_t vendor;
@@ -235,12 +257,14 @@ static void update_udev_device(Setsu *setsu, struct udev_device *dev)
 	}
 
 	// not yet added
-	if(!is_device_interesting(dev))
+	SetsuDeviceType type;
+	if(!is_device_interesting(dev, &type))
 		return;
 
 	SetsuAvailDevice *adev = calloc(1, sizeof(SetsuAvailDevice));
 	if(!adev)
 		return;
+	adev->type = type;
 	adev->path = strdup(path);
 	if(!adev->path)
 	{
@@ -286,7 +310,7 @@ bool get_dev_ids(const char *path, uint32_t *vendor_id, uint32_t *model_id)
 	return true;
 }
 
-SetsuDevice *setsu_connect(Setsu *setsu, const char *path)
+SetsuDevice *setsu_connect(Setsu *setsu, const char *path, SetsuDeviceType type)
 {
 	SetsuDevice *dev = calloc(1, sizeof(SetsuDevice));
 	if(!dev)
@@ -295,10 +319,15 @@ SetsuDevice *setsu_connect(Setsu *setsu, const char *path)
 	dev->path = strdup(path);
 	if(!dev->path)
 		goto error;
+	dev->type = type;
 
 	dev->fd = open(dev->path, O_RDONLY | O_NONBLOCK);
 	if(dev->fd == -1)
+	{
+		SETSU_LOG("Failed to open %s\n", dev->path);
+		perror("setsu_connect");
 		goto error;
+	}
 
 	if(libevdev_new_from_fd(dev->fd, &dev->evdev) < 0)
 	{
@@ -306,15 +335,29 @@ SetsuDevice *setsu_connect(Setsu *setsu, const char *path)
 		goto error;
 	}
 
-	dev->min_x = libevdev_get_abs_minimum(dev->evdev, ABS_X);
-	dev->min_y = libevdev_get_abs_minimum(dev->evdev, ABS_Y);
-	dev->max_x = libevdev_get_abs_maximum(dev->evdev, ABS_X);
-	dev->max_y = libevdev_get_abs_maximum(dev->evdev, ABS_Y);
-
-	for(size_t i=0; i<SLOTS_COUNT; i++)
+	switch(type)
 	{
-		dev->slots[i].tracking_id_prev = -1;
-		dev->slots[i].tracking_id = -1;
+		case SETSU_DEVICE_TYPE_TOUCHPAD:
+			dev->touchpad.min_x = libevdev_get_abs_minimum(dev->evdev, ABS_X);
+			dev->touchpad.min_y = libevdev_get_abs_minimum(dev->evdev, ABS_Y);
+			dev->touchpad.max_x = libevdev_get_abs_maximum(dev->evdev, ABS_X);
+			dev->touchpad.max_y = libevdev_get_abs_maximum(dev->evdev, ABS_Y);
+
+			for(size_t i=0; i<SLOTS_COUNT; i++)
+			{
+				dev->touchpad.slots[i].tracking_id_prev = -1;
+				dev->touchpad.slots[i].tracking_id = -1;
+			}
+			break;
+		case SETSU_DEVICE_TYPE_MOTION:
+			dev->motion.accel_res_x = libevdev_get_abs_resolution(dev->evdev, ABS_X);
+			dev->motion.accel_res_y = libevdev_get_abs_resolution(dev->evdev, ABS_Y);
+			dev->motion.accel_res_z = libevdev_get_abs_resolution(dev->evdev, ABS_Z);
+			dev->motion.gyro_res_x = libevdev_get_abs_resolution(dev->evdev, ABS_RX);
+			dev->motion.gyro_res_y = libevdev_get_abs_resolution(dev->evdev, ABS_RY);
+			dev->motion.gyro_res_z = libevdev_get_abs_resolution(dev->evdev, ABS_RZ);
+			dev->motion.accel_y = dev->motion.accel_res_y; // 1G down
+			break;
 	}
 
 	dev->next = setsu->dev;
@@ -356,14 +399,18 @@ const char *setsu_device_get_path(SetsuDevice *dev)
 	return dev->path;
 }
 
-uint32_t setsu_device_get_width(SetsuDevice *dev)
+uint32_t setsu_device_touchpad_get_width(SetsuDevice *dev)
 {
-	return dev->max_x - dev->min_x;
+	if(dev->type != SETSU_DEVICE_TYPE_TOUCHPAD)
+		return 0;
+	return dev->touchpad.max_x - dev->touchpad.min_x;
 }
 
-uint32_t setsu_device_get_height(SetsuDevice *dev)
+uint32_t setsu_device_touchpad_get_height(SetsuDevice *dev)
 {
-	return dev->max_y - dev->min_y;
+	if(dev->type != SETSU_DEVICE_TYPE_TOUCHPAD)
+		return 0;
+	return dev->touchpad.max_y - dev->touchpad.min_y;
 }
 
 void kill_avail_device(Setsu *setsu, SetsuAvailDevice *adev)
@@ -408,6 +455,7 @@ void setsu_poll(Setsu *setsu, SetsuEventCb cb, void *user)
 			SetsuEvent event = { 0 };
 			event.type = SETSU_EVENT_DEVICE_ADDED;
 			event.path = adev->path;
+			event.dev_type = adev->type;
 			cb(&event, user);
 			adev->connect_dirty = false;
 		}
@@ -416,6 +464,7 @@ void setsu_poll(Setsu *setsu, SetsuEventCb cb, void *user)
 			SetsuEvent event = { 0 };
 			event.type = SETSU_EVENT_DEVICE_REMOVED;
 			event.path = adev->path;
+			event.dev_type = adev->type;
 			cb(&event, user);
 			// kill the device only after sending the event
 			SetsuAvailDevice *next = adev->next;
@@ -480,59 +529,106 @@ static void device_event(Setsu *setsu, SetsuDevice *dev, struct input_event *ev,
 		libevdev_event_code_get_name(ev->type, ev->code),
 		ev->value);
 #endif
-#define S dev->slots[dev->slot_cur]
-	switch(ev->type)
+	if(ev->type == EV_SYN && ev->code == SYN_REPORT)
 	{
-		case EV_ABS:
-			switch(ev->code)
+		device_drain(setsu, dev, cb, user);
+		return;
+	}
+	switch(dev->type)
+	{
+		case SETSU_DEVICE_TYPE_TOUCHPAD:
+			switch(ev->type)
 			{
-				case ABS_MT_SLOT:
-					if((unsigned int)ev->value >= SLOTS_COUNT)
+				case EV_ABS:
+#define S dev->touchpad.slots[dev->touchpad.slot_cur]
+					switch(ev->code)
 					{
-						SETSU_LOG("slot too high\n");
+						case ABS_MT_SLOT:
+							if((unsigned int)ev->value >= SLOTS_COUNT)
+							{
+								SETSU_LOG("slot too high\n");
+								break;
+							}
+							dev->touchpad.slot_cur = ev->value;
+							break;
+						case ABS_MT_TRACKING_ID:
+							if(S.tracking_id != -1 && S.tracking_id_prev == -1)
+							{
+								// up the tracking id
+								S.tracking_id_prev = S.tracking_id;
+								// reset the rest
+								S.x = S.y = 0;
+								S.pos_dirty = false;
+							}
+							S.tracking_id = ev->value;
+							if(ev->value != -1)
+								S.downed = true;
+							break;
+						case ABS_MT_POSITION_X:
+							S.x = ev->value;
+							S.pos_dirty = true;
+							break;
+						case ABS_MT_POSITION_Y:
+							S.y = ev->value;
+							S.pos_dirty = true;
+							break;
+					}
+					break;
+#undef S
+				case EV_KEY: {
+					uint64_t button = button_from_evdev(ev->code);
+					if(!button)
 						break;
-					}
-					dev->slot_cur = ev->value;
+					if(ev->value)
+						dev->touchpad.buttons_cur |= button;
+					else
+						dev->touchpad.buttons_cur &= ~button;
 					break;
-				case ABS_MT_TRACKING_ID:
-					if(S.tracking_id != -1 && S.tracking_id_prev == -1)
+				}
+			}
+			break;
+		case SETSU_DEVICE_TYPE_MOTION:
+			switch(ev->type)
+			{
+				case EV_ABS:
+					switch(ev->code)
 					{
-						// up the tracking id
-						S.tracking_id_prev = S.tracking_id;
-						// reset the rest
-						S.x = S.y = 0;
-						S.pos_dirty = false;
+						case ABS_X:
+							dev->motion.accel_x = ev->value;
+							dev->motion.dirty = true;
+							break;
+						case ABS_Y:
+							dev->motion.accel_y = ev->value;
+							dev->motion.dirty = true;
+							break;
+						case ABS_Z:
+							dev->motion.accel_z = ev->value;
+							dev->motion.dirty = true;
+							break;
+						case ABS_RX:
+							dev->motion.gyro_x = ev->value;
+							dev->motion.dirty = true;
+							break;
+						case ABS_RY:
+							dev->motion.gyro_y = ev->value;
+							dev->motion.dirty = true;
+							break;
+						case ABS_RZ:
+							dev->motion.gyro_z = ev->value;
+							dev->motion.dirty = true;
+							break;
 					}
-					S.tracking_id = ev->value;
-					if(ev->value != -1)
-						S.downed = true;
 					break;
-				case ABS_MT_POSITION_X:
-					S.x = ev->value;
-					S.pos_dirty = true;
-					break;
-				case ABS_MT_POSITION_Y:
-					S.y = ev->value;
-					S.pos_dirty = true;
+				case EV_MSC:
+					if(ev->code == MSC_TIMESTAMP)
+					{
+						dev->motion.timestamp = ev->value;
+						dev->motion.dirty = true;
+					}
 					break;
 			}
 			break;
-		case EV_KEY: {
-			uint64_t button = button_from_evdev(ev->code);
-			if(!button)
-				break;
-			if(ev->value)
-				dev->buttons_cur |= button;
-			else
-				dev->buttons_cur &= ~button;
-			break;
-		}
-		case EV_SYN:
-			if(ev->code == SYN_REPORT)
-				device_drain(setsu, dev, cb, user);
-			break;
 	}
-#undef S
 }
 
 static void device_drain(Setsu *setsu, SetsuDevice *dev, SetsuEventCb cb, void *user)
@@ -540,48 +636,68 @@ static void device_drain(Setsu *setsu, SetsuDevice *dev, SetsuEventCb cb, void *
 	SetsuEvent event;
 #define BEGIN_EVENT(tp) do { memset(&event, 0, sizeof(event)); event.dev = dev; event.type = tp; } while(0)
 #define SEND_EVENT() do { cb(&event, user); } while (0)
-	for(size_t i=0; i<SLOTS_COUNT; i++)
+	switch(dev->type)
 	{
-		if(dev->slots[i].tracking_id_prev != -1)
-		{
-			BEGIN_EVENT(SETSU_EVENT_TOUCH_UP);
-			event.tracking_id = dev->slots[i].tracking_id_prev;
-			SEND_EVENT();
-			dev->slots[i].tracking_id_prev = -1;
-		}
-		if(dev->slots[i].downed)
-		{
-			BEGIN_EVENT(SETSU_EVENT_TOUCH_DOWN);
-			event.tracking_id = dev->slots[i].tracking_id;
-			SEND_EVENT();
-			dev->slots[i].downed = false;
-		}
-		if(dev->slots[i].pos_dirty)
-		{
-			BEGIN_EVENT(SETSU_EVENT_TOUCH_POSITION);
-			event.tracking_id = dev->slots[i].tracking_id;
-			event.x = (uint32_t)(dev->slots[i].x - dev->min_x);
-			event.y = (uint32_t)(dev->slots[i].y - dev->min_y);
-			SEND_EVENT();
-			dev->slots[i].pos_dirty = false;
-		}
-	}
+		case SETSU_DEVICE_TYPE_TOUCHPAD:
+			for(size_t i=0; i<SLOTS_COUNT; i++)
+			{
+				if(dev->touchpad.slots[i].tracking_id_prev != -1)
+				{
+					BEGIN_EVENT(SETSU_EVENT_TOUCH_UP);
+					event.touch.tracking_id = dev->touchpad.slots[i].tracking_id_prev;
+					SEND_EVENT();
+					dev->touchpad.slots[i].tracking_id_prev = -1;
+				}
+				if(dev->touchpad.slots[i].downed)
+				{
+					BEGIN_EVENT(SETSU_EVENT_TOUCH_DOWN);
+					event.touch.tracking_id = dev->touchpad.slots[i].tracking_id;
+					SEND_EVENT();
+					dev->touchpad.slots[i].downed = false;
+				}
+				if(dev->touchpad.slots[i].pos_dirty)
+				{
+					BEGIN_EVENT(SETSU_EVENT_TOUCH_POSITION);
+					event.touch.tracking_id = dev->touchpad.slots[i].tracking_id;
+					event.touch.x = (uint32_t)(dev->touchpad.slots[i].x - dev->touchpad.min_x);
+					event.touch.y = (uint32_t)(dev->touchpad.slots[i].y - dev->touchpad.min_y);
+					SEND_EVENT();
+					dev->touchpad.slots[i].pos_dirty = false;
+				}
+			}
 
-	uint64_t buttons_diff = dev->buttons_prev ^ dev->buttons_cur;
-	for(uint64_t i=0; i<64; i++)
-	{
-		if(buttons_diff & 1)
-		{
-			uint64_t button = 1 << i;
-			BEGIN_EVENT((dev->buttons_cur & button) ? SETSU_EVENT_BUTTON_DOWN : SETSU_EVENT_BUTTON_UP);
-			event.button = button;
-			SEND_EVENT();
-		}
-		buttons_diff >>= 1;
-		if(!buttons_diff)
+			uint64_t buttons_diff = dev->touchpad.buttons_prev ^ dev->touchpad.buttons_cur;
+			for(uint64_t i=0; i<64; i++)
+			{
+				if(buttons_diff & 1)
+				{
+					uint64_t button = 1 << i;
+					BEGIN_EVENT((dev->touchpad.buttons_cur & button) ? SETSU_EVENT_BUTTON_DOWN : SETSU_EVENT_BUTTON_UP);
+					event.button = button;
+					SEND_EVENT();
+				}
+				buttons_diff >>= 1;
+				if(!buttons_diff)
+					break;
+			}
+			dev->touchpad.buttons_prev = dev->touchpad.buttons_cur;
+			break;
+		case SETSU_DEVICE_TYPE_MOTION:
+			if(dev->motion.dirty)
+			{
+				BEGIN_EVENT(SETSU_EVENT_MOTION);
+				event.motion.accel_x = (float)dev->motion.accel_x / (float)dev->motion.accel_res_x;
+				event.motion.accel_y = (float)dev->motion.accel_y / (float)dev->motion.accel_res_y;
+				event.motion.accel_z = (float)dev->motion.accel_z / (float)dev->motion.accel_res_z;
+				event.motion.gyro_x = DEG2RAD * (float)dev->motion.gyro_x / (float)dev->motion.gyro_res_x;
+				event.motion.gyro_y = DEG2RAD * (float)dev->motion.gyro_y / (float)dev->motion.gyro_res_y;
+				event.motion.gyro_z = DEG2RAD * (float)dev->motion.gyro_z / (float)dev->motion.gyro_res_z;
+				event.motion.timestamp = dev->motion.timestamp;
+				SEND_EVENT();
+				dev->motion.dirty = false;
+			}
 			break;
 	}
-	dev->buttons_prev = dev->buttons_cur;
 #undef BEGIN_EVENT
 #undef SEND_EVENT
 }

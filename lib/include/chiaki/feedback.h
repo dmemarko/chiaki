@@ -1,19 +1,4 @@
-/*
- * This file is part of Chiaki.
- *
- * Chiaki is free software: you can redistribute it and/or modify
- * it under the terms of the GNU General Public License as published by
- * the Free Software Foundation, either version 3 of the License, or
- * (at your option) any later version.
- *
- * Chiaki is distributed in the hope that it will be useful,
- * but WITHOUT ANY WARRANTY; without even the implied warranty of
- * MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
- * GNU General Public License for more details.
- *
- * You should have received a copy of the GNU General Public License
- * along with Chiaki.  If not, see <https://www.gnu.org/licenses/>.
- */
+// SPDX-License-Identifier: LicenseRef-AGPL-3.0-only-OpenSSL
 
 #ifndef CHIAKI_FEEDBACK_H
 #define CHIAKI_FEEDBACK_H
@@ -30,19 +15,30 @@ extern "C" {
 
 typedef struct chiaki_feedback_state_t
 {
+	float gyro_x, gyro_y, gyro_z;
+	float accel_x, accel_y, accel_z;
+	float orient_x, orient_y, orient_z, orient_w;
 	int16_t left_x;
 	int16_t left_y;
 	int16_t right_x;
 	int16_t right_y;
 } ChiakiFeedbackState;
 
-#define CHIAKI_FEEDBACK_STATE_BUF_SIZE 0x19
+#define CHIAKI_FEEDBACK_STATE_BUF_SIZE_MAX 0x1c
+
+#define CHIAKI_FEEDBACK_STATE_BUF_SIZE_V9 0x19
 
 /**
- * @param buf buffer of at least CHIAKI_FEEDBACK_STATE_BUF_SIZE
+ * @param buf buffer of at least CHIAKI_FEEDBACK_STATE_BUF_SIZE_V9
  */
-CHIAKI_EXPORT void chiaki_feedback_state_format(uint8_t *buf, ChiakiFeedbackState *state);
+CHIAKI_EXPORT void chiaki_feedback_state_format_v9(uint8_t *buf, ChiakiFeedbackState *state);
 
+#define CHIAKI_FEEDBACK_STATE_BUF_SIZE_V12 0x1c
+
+/**
+ * @param buf buffer of at least CHIAKI_FEEDBACK_STATE_BUF_SIZE_V12
+ */
+CHIAKI_EXPORT void chiaki_feedback_state_format_v12(uint8_t *buf, ChiakiFeedbackState *state);
 
 #define CHIAKI_HISTORY_EVENT_SIZE_MAX 0x5
 

@@ -1,19 +1,4 @@
-/*
- * This file is part of Chiaki.
- *
- * Chiaki is free software: you can redistribute it and/or modify
- * it under the terms of the GNU General Public License as published by
- * the Free Software Foundation, either version 3 of the License, or
- * (at your option) any later version.
- *
- * Chiaki is distributed in the hope that it will be useful,
- * but WITHOUT ANY WARRANTY; without even the implied warranty of
- * MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
- * GNU General Public License for more details.
- *
- * You should have received a copy of the GNU General Public License
- * along with Chiaki.  If not, see <https://www.gnu.org/licenses/>.
- */
+// SPDX-License-Identifier: LicenseRef-AGPL-3.0-only-OpenSSL
 
 #include "video-decoder.h"
 
@@ -29,42 +14,62 @@
 
 static void *android_chiaki_video_decoder_output_thread_func(void *user);
 
-ChiakiErrorCode android_chiaki_video_decoder_init(AndroidChiakiVideoDecoder *decoder, ChiakiLog *log, int32_t target_width, int32_t target_height)
+ChiakiErrorCode android_chiaki_video_decoder_init(AndroidChiakiVideoDecoder *decoder, ChiakiLog *log, int32_t target_width, int32_t target_height, ChiakiCodec codec)
 {
 	decoder->log = log;
 	decoder->codec = NULL;
 	decoder->timestamp_cur = 0;
 	decoder->target_width = target_width;
 	decoder->target_height = target_height;
+	decoder->target_codec = codec;
+	decoder->shutdown_output = false;
 	return chiaki_mutex_init(&decoder->codec_mutex, false);
+}
+
+static void kill_decoder(AndroidChiakiVideoDecoder *decoder)
+{
+	chiaki_mutex_lock(&decoder->codec_mutex);
+	decoder->shutdown_output = true;
+	ssize_t codec_buf_index = AMediaCodec_dequeueInputBuffer(decoder->codec, 1000);
+	if(codec_buf_index >= 0)
+	{
+		CHIAKI_LOGI(decoder->log, "Video Decoder sending EOS buffer");
+		AMediaCodec_queueInputBuffer(decoder->codec, (size_t)codec_buf_index, 0, 0, decoder->timestamp_cur++, AMEDIACODEC_BUFFER_FLAG_END_OF_STREAM);
+		AMediaCodec_stop(decoder->codec);
+		chiaki_mutex_unlock(&decoder->codec_mutex);
+		chiaki_thread_join(&decoder->output_thread, NULL);
+	}
+	else
+	{
+		CHIAKI_LOGE(decoder->log, "Failed to get input buffer for shutting down Video Decoder!");
+		AMediaCodec_stop(decoder->codec);
+		chiaki_mutex_unlock(&decoder->codec_mutex);
+	}
+	AMediaCodec_delete(decoder->codec);
+	decoder->codec = NULL;
+	decoder->shutdown_output = false;
 }
 
 void android_chiaki_video_decoder_fini(AndroidChiakiVideoDecoder *decoder)
 {
 	if(decoder->codec)
-	{
-		chiaki_mutex_lock(&decoder->codec_mutex);
-		ssize_t codec_buf_index = AMediaCodec_dequeueInputBuffer(decoder->codec, -1);
-		if(codec_buf_index >= 0)
-		{
-			CHIAKI_LOGI(decoder->log, "Video Decoder sending EOS buffer");
-			AMediaCodec_queueInputBuffer(decoder->codec, (size_t)codec_buf_index, 0, 0, decoder->timestamp_cur++, AMEDIACODEC_BUFFER_FLAG_END_OF_STREAM);
-			chiaki_mutex_unlock(&decoder->codec_mutex);
-			chiaki_thread_join(&decoder->output_thread, NULL);
-		}
-		else
-		{
-			CHIAKI_LOGE(decoder->log, "Failed to get input buffer for shutting down Video Decoder!");
-			chiaki_mutex_unlock(&decoder->codec_mutex);
-		}
-		AMediaCodec_delete(decoder->codec);
-	}
+		kill_decoder(decoder);
 	chiaki_mutex_fini(&decoder->codec_mutex);
 }
 
 void android_chiaki_video_decoder_set_surface(AndroidChiakiVideoDecoder *decoder, JNIEnv *env, jobject surface)
 {
 	chiaki_mutex_lock(&decoder->codec_mutex);
+
+	if(!surface)
+	{
+		if(decoder->codec)
+		{
+			kill_decoder(decoder);
+			CHIAKI_LOGI(decoder->log, "Decoder shut down after surface was removed");
+		}
+		return;
+	}
 
 	if(decoder->codec)
 	{
@@ -82,7 +87,8 @@ void android_chiaki_video_decoder_set_surface(AndroidChiakiVideoDecoder *decoder
 
 	decoder->window = ANativeWindow_fromSurface(env, surface);
 
-	const char *mime = "video/avc";
+	const char *mime = chiaki_codec_is_h265(decoder->target_codec) ? "video/hevc" : "video/avc";
+	CHIAKI_LOGI(decoder->log, "Initializing decoder with mime %s", mime);
 
 	decoder->codec = AMediaCodec_createDecoderByType(mime);
 	if(!decoder->codec)
@@ -193,6 +199,17 @@ static void *android_chiaki_video_decoder_output_thread_func(void *user)
 			if(info.flags & AMEDIACODEC_BUFFER_FLAG_END_OF_STREAM)
 			{
 				CHIAKI_LOGI(decoder->log, "AMediaCodec reported EOS");
+				break;
+			}
+		}
+		else
+		{
+			chiaki_mutex_lock(&decoder->codec_mutex);
+			bool shutdown = decoder->shutdown_output;
+			chiaki_mutex_unlock(&decoder->codec_mutex);
+			if(shutdown)
+			{
+				CHIAKI_LOGI(decoder->log, "Video Decoder Output Thread detected shutdown after reported error");
 				break;
 			}
 		}

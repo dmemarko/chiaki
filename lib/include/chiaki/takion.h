@@ -1,19 +1,4 @@
-/*
- * This file is part of Chiaki.
- *
- * Chiaki is free software: you can redistribute it and/or modify
- * it under the terms of the GNU General Public License as published by
- * the Free Software Foundation, either version 3 of the License, or
- * (at your option) any later version.
- *
- * Chiaki is distributed in the hope that it will be useful,
- * but WITHOUT ANY WARRANTY; without even the implied warranty of
- * MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
- * GNU General Public License for more details.
- *
- * You should have received a copy of the GNU General Public License
- * along with Chiaki.  If not, see <https://www.gnu.org/licenses/>.
- */
+// SPDX-License-Identifier: LicenseRef-AGPL-3.0-only-OpenSSL
 
 #ifndef CHIAKI_TAKION_H
 #define CHIAKI_TAKION_H
@@ -39,10 +24,9 @@
 extern "C" {
 #endif
 
-typedef uint32_t ChiakiTakionPacketKeyPos;
-
 typedef enum chiaki_takion_message_data_type_t {
 	CHIAKI_TAKION_MESSAGE_DATA_TYPE_PROTOBUF = 0,
+	CHIAKI_TAKION_MESSAGE_DATA_TYPE_RUMBLE = 7,
 	CHIAKI_TAKION_MESSAGE_DATA_TYPE_9 = 9
 } ChiakiTakionMessageDataType;
 
@@ -60,7 +44,9 @@ typedef struct chiaki_takion_av_packet_t
 	uint8_t adaptive_stream_index;
 	uint8_t byte_at_0x2c;
 
-	uint32_t key_pos;
+	uint64_t key_pos;
+
+	uint8_t byte_before_audio_data;
 
 	uint8_t *data; // not owned
 	size_t data_size;
@@ -70,13 +56,13 @@ static inline uint8_t chiaki_takion_av_packet_audio_unit_size(ChiakiTakionAVPack
 static inline uint8_t chiaki_takion_av_packet_audio_source_units_count(ChiakiTakionAVPacket *packet)	{ return packet->units_in_frame_fec & 0xf; }
 static inline uint8_t chiaki_takion_av_packet_audio_fec_units_count(ChiakiTakionAVPacket *packet)		{ return (packet->units_in_frame_fec >> 4) & 0xf; }
 
-typedef ChiakiErrorCode (*ChiakiTakionAVPacketParse)(ChiakiTakionAVPacket *packet, uint8_t *buf, size_t buf_size);
+typedef ChiakiErrorCode (*ChiakiTakionAVPacketParse)(ChiakiTakionAVPacket *packet, ChiakiKeyState *key_state, uint8_t *buf, size_t buf_size);
 
 typedef struct chiaki_takion_congestion_packet_t
 {
 	uint16_t word_0;
-	uint16_t word_1;
-	uint16_t word_2;
+	uint16_t received;
+	uint16_t lost;
 } ChiakiTakionCongestionPacket;
 
 
@@ -127,6 +113,7 @@ typedef struct chiaki_takion_connect_info_t
 typedef struct chiaki_takion_t
 {
 	ChiakiLog *log;
+	uint8_t version;
 
 	/**
 	 * Whether encryption should be used.
@@ -148,7 +135,7 @@ typedef struct chiaki_takion_t
 	size_t postponed_packets_count;
 
 	ChiakiGKCrypt *gkcrypt_local; // if NULL (default), no gmac is calculated and nothing is encrypted
-	size_t key_pos_local;
+	uint64_t key_pos_local;
 	ChiakiMutex gkcrypt_local_mutex;
 
 	ChiakiGKCrypt *gkcrypt_remote; // if NULL (default), remote gmacs are IGNORED (!) and everything is expected to be unencrypted
@@ -173,6 +160,8 @@ typedef struct chiaki_takion_t
 	uint32_t a_rwnd;
 
 	ChiakiTakionAVPacketParse av_packet_parse;
+
+	ChiakiKeyState key_state;
 } ChiakiTakion;
 
 
@@ -182,10 +171,13 @@ CHIAKI_EXPORT void chiaki_takion_close(ChiakiTakion *takion);
 /**
  * Must be called from within the Takion thread, i.e. inside the callback!
  */
-static inline void chiaki_takion_set_crypt(ChiakiTakion *takion, ChiakiGKCrypt *gkcrypt_local, ChiakiGKCrypt *gkcrypt_remote) {
+static inline void chiaki_takion_set_crypt(ChiakiTakion *takion, ChiakiGKCrypt *gkcrypt_local, ChiakiGKCrypt *gkcrypt_remote)
+{
 	takion->gkcrypt_local = gkcrypt_local;
 	takion->gkcrypt_remote = gkcrypt_remote;
 }
+
+CHIAKI_EXPORT ChiakiErrorCode chiaki_takion_packet_mac(ChiakiGKCrypt *crypt, uint8_t *buf, size_t buf_size, uint64_t key_pos, uint8_t *mac_out, uint8_t *mac_old_out);
 
 /**
  * Get a new key pos and advance by data_size.
@@ -193,7 +185,7 @@ static inline void chiaki_takion_set_crypt(ChiakiTakion *takion, ChiakiGKCrypt *
  * Thread-safe while Takion is running.
  * @param key_pos pointer to write the new key pos to. will be 0 if encryption is disabled. Contents undefined on failure.
  */
-CHIAKI_EXPORT ChiakiErrorCode chiaki_takion_crypt_advance_key_pos(ChiakiTakion *takion, size_t data_size, size_t *key_pos);
+CHIAKI_EXPORT ChiakiErrorCode chiaki_takion_crypt_advance_key_pos(ChiakiTakion *takion, size_t data_size, uint64_t *key_pos);
 
 /**
  * Send a datagram directly on the socket.
@@ -208,7 +200,7 @@ CHIAKI_EXPORT ChiakiErrorCode chiaki_takion_send_raw(ChiakiTakion *takion, const
  *
  * If encryption is disabled, the MAC will be set to 0.
  */
-CHIAKI_EXPORT ChiakiErrorCode chiaki_takion_send(ChiakiTakion *takion, uint8_t *buf, size_t buf_size);
+CHIAKI_EXPORT ChiakiErrorCode chiaki_takion_send(ChiakiTakion *takion, uint8_t *buf, size_t buf_size, uint64_t key_pos);
 
 /**
  * Thread-safe while Takion is running.
@@ -235,7 +227,12 @@ CHIAKI_EXPORT ChiakiErrorCode chiaki_takion_send_feedback_history(ChiakiTakion *
 #define CHIAKI_TAKION_V9_AV_HEADER_SIZE_VIDEO 0x17
 #define CHIAKI_TAKION_V9_AV_HEADER_SIZE_AUDIO 0x12
 
-CHIAKI_EXPORT ChiakiErrorCode chiaki_takion_v9_av_packet_parse(ChiakiTakionAVPacket *packet, uint8_t *buf, size_t buf_size);
+CHIAKI_EXPORT ChiakiErrorCode chiaki_takion_v9_av_packet_parse(ChiakiTakionAVPacket *packet, ChiakiKeyState *key_state, uint8_t *buf, size_t buf_size);
+
+#define CHIAKI_TAKION_V12_AV_HEADER_SIZE_VIDEO 0x17
+#define CHIAKI_TAKION_V12_AV_HEADER_SIZE_AUDIO 0x13
+
+CHIAKI_EXPORT ChiakiErrorCode chiaki_takion_v12_av_packet_parse(ChiakiTakionAVPacket *packet, ChiakiKeyState *key_state, uint8_t *buf, size_t buf_size);
 
 #define CHIAKI_TAKION_V7_AV_HEADER_SIZE_BASE					0x12
 #define CHIAKI_TAKION_V7_AV_HEADER_SIZE_VIDEO_ADD				0x3
@@ -243,7 +240,11 @@ CHIAKI_EXPORT ChiakiErrorCode chiaki_takion_v9_av_packet_parse(ChiakiTakionAVPac
 
 CHIAKI_EXPORT ChiakiErrorCode chiaki_takion_v7_av_packet_format_header(uint8_t *buf, size_t buf_size, size_t *header_size_out, ChiakiTakionAVPacket *packet);
 
-CHIAKI_EXPORT ChiakiErrorCode chiaki_takion_v7_av_packet_parse(ChiakiTakionAVPacket *packet, uint8_t *buf, size_t buf_size);
+CHIAKI_EXPORT ChiakiErrorCode chiaki_takion_v7_av_packet_parse(ChiakiTakionAVPacket *packet, ChiakiKeyState *key_state, uint8_t *buf, size_t buf_size);
+
+#define CHIAKI_TAKION_CONGESTION_PACKET_SIZE 0xf
+
+CHIAKI_EXPORT void chiaki_takion_format_congestion(uint8_t *buf, ChiakiTakionCongestionPacket *packet, uint64_t key_pos);
 
 #ifdef __cplusplus
 }

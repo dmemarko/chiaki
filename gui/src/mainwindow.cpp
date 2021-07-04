@@ -1,19 +1,4 @@
-/*
- * This file is part of Chiaki.
- *
- * Chiaki is free software: you can redistribute it and/or modify
- * it under the terms of the GNU General Public License as published by
- * the Free Software Foundation, either version 3 of the License, or
- * (at your option) any later version.
- *
- * Chiaki is distributed in the hope that it will be useful,
- * but WITHOUT ANY WARRANTY; without even the implied warranty of
- * MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
- * GNU General Public License for more details.
- *
- * You should have received a copy of the GNU General Public License
- * along with Chiaki.  If not, see <https://www.gnu.org/licenses/>.
- */
+// SPDX-License-Identifier: LicenseRef-AGPL-3.0-only-OpenSSL
 
 #include <mainwindow.h>
 #include <dynamicgridwidget.h>
@@ -182,7 +167,7 @@ MainWindow::MainWindow(Settings *settings, QWidget *parent)
 	grid_widget->setContentsMargins(0, 0, 0, 0);
 
 	resize(800, 600);
-	
+
 	connect(&discovery_manager, &DiscoveryManager::HostsUpdated, this, &MainWindow::UpdateDisplayServers);
 	connect(settings, &Settings::RegisteredHostsUpdated, this, &MainWindow::UpdateDisplayServers);
 	connect(settings, &Settings::ManualHostsUpdated, this, &MainWindow::UpdateDisplayServers);
@@ -227,7 +212,8 @@ void MainWindow::SendWakeup(const DisplayServer *server)
 
 	try
 	{
-		discovery_manager.SendWakeup(server->GetHostAddr(), server->registered_host.GetRPRegistKey());
+		discovery_manager.SendWakeup(server->GetHostAddr(), server->registered_host.GetRPRegistKey(),
+				chiaki_target_is_ps5(server->registered_host.GetTarget()));
 	}
 	catch(const Exception &e)
 	{
@@ -263,7 +249,7 @@ void MainWindow::ServerItemWidgetTriggered()
 		}
 
 		QString host = server.GetHostAddr();
-		StreamSessionConnectInfo info(settings, host, server.registered_host.GetRPRegistKey(), server.registered_host.GetRPKey());
+		StreamSessionConnectInfo info(settings, server.registered_host.GetTarget(), host, server.registered_host.GetRPRegistKey(), server.registered_host.GetRPKey(), false);
 		new StreamWindow(info);
 	}
 	else
@@ -344,7 +330,7 @@ void MainWindow::UpdateDisplayServers()
 
 		display_servers.append(server);
 	}
-	
+
 	UpdateServerWidgets();
 }
 

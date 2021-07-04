@@ -1,19 +1,4 @@
-/*
- * This file is part of Chiaki.
- *
- * Chiaki is free software: you can redistribute it and/or modify
- * it under the terms of the GNU General Public License as published by
- * the Free Software Foundation, either version 3 of the License, or
- * (at your option) any later version.
- *
- * Chiaki is distributed in the hope that it will be useful,
- * but WITHOUT ANY WARRANTY; without even the implied warranty of
- * MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
- * GNU General Public License for more details.
- *
- * You should have received a copy of the GNU General Public License
- * along with Chiaki.  If not, see <https://www.gnu.org/licenses/>.
- */
+// SPDX-License-Identifier: LicenseRef-AGPL-3.0-only-OpenSSL
 
 package com.metallic.chiaki.session
 
@@ -40,8 +25,11 @@ class StreamSession(val connectInfo: ConnectInfo, val logManager: LogManager, va
 
 	private val _state = MutableLiveData<StreamState>(StreamStateIdle)
 	val state: LiveData<StreamState> get() = _state
+	private val _rumbleState = MutableLiveData<RumbleEvent>(RumbleEvent(0U, 0U))
+	val rumbleState: LiveData<RumbleEvent> get() = _rumbleState
 
-	var surfaceTexture: SurfaceTexture? = null
+	private var surfaceTexture: SurfaceTexture? = null
+	private var surface: Surface? = null
 
 	init
 	{
@@ -74,9 +62,9 @@ class StreamSession(val connectInfo: ConnectInfo, val logManager: LogManager, va
 			_state.value = StreamStateConnecting
 			session.eventCallback = this::eventCallback
 			session.start()
-			val surfaceTexture = surfaceTexture
-			if(surfaceTexture != null)
-				session.setSurface(Surface(surfaceTexture))
+			val surface = surface
+			if(surface != null)
+				session.setSurface(surface)
 			this.session = session
 		}
 		catch(e: CreateError)
@@ -101,7 +89,28 @@ class StreamSession(val connectInfo: ConnectInfo, val logManager: LogManager, va
 					event.pinIncorrect
 				)
 			)
+			is RumbleEvent -> _rumbleState.postValue(event)
 		}
+	}
+
+	fun attachToSurfaceView(surfaceView: SurfaceView)
+	{
+		surfaceView.holder.addCallback(object: SurfaceHolder.Callback {
+			override fun surfaceCreated(holder: SurfaceHolder) { }
+
+			override fun surfaceChanged(holder: SurfaceHolder, format: Int, width: Int, height: Int)
+			{
+				val surface = holder.surface
+				this@StreamSession.surface = surface
+				session?.setSurface(surface)
+			}
+
+			override fun surfaceDestroyed(holder: SurfaceHolder)
+			{
+				this@StreamSession.surface = null
+				session?.setSurface(null)
+			}
+		})
 	}
 
 	fun attachToTextureView(textureView: TextureView)
@@ -112,6 +121,7 @@ class StreamSession(val connectInfo: ConnectInfo, val logManager: LogManager, va
 				if(surfaceTexture != null)
 					return
 				surfaceTexture = surface
+				this@StreamSession.surface = Surface(surfaceTexture)
 				session?.setSurface(Surface(surface))
 			}
 
@@ -127,7 +137,7 @@ class StreamSession(val connectInfo: ConnectInfo, val logManager: LogManager, va
 
 		val surfaceTexture = surfaceTexture
 		if(surfaceTexture != null)
-			textureView.surfaceTexture = surfaceTexture
+			textureView.setSurfaceTexture(surfaceTexture)
 	}
 
 	fun setLoginPin(pin: String)
